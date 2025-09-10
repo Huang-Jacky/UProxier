@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UProxier</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* 全局样式 */
+        body {
+            background: #f8fafc;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* 导航栏样式 */
+        .navbar {
+            background: #1e293b !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 顶栏图标按钮 */
+        .nav-icon-btn {
+            border: 0;
+            background: transparent;
+            color: #ffffff;
+            padding: 6px 8px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.9;
+            transition: all 0.2s ease;
+        }
+
+        .nav-icon-btn:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .nav-icon-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* 紧凑统计栏样式 */
+        .stats-bar {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .stats-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+        }
+
+        .stats-label {
+            font-size: 0.875rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .stats-value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .stats-value.success {
+            color: #10b981;
+        }
+
+        .stats-value.warning {
+            color: #f59e0b;
+        }
+
+        .stats-value.danger {
+            color: #ef4444;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .stats-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.75rem;
+            }
+
+            .stats-item {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
+
+        /* 表格样式 */
+        .traffic-table {
+            font-size: 0.9rem;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .traffic-table .table {
+            margin-bottom: 0;
+        }
+
+        .traffic-table .table-dark {
+            background: #1e293b;
+            border: none;
+        }
+
+        .url-cell {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .clickable-row {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .clickable-row:hover {
+            background: #f1f5f9 !important;
+        }
+
+        .clickable-row td {
+            transition: all 0.2s ease;
+            border: none;
+            padding: 0.75rem;
+        }
+
+        /* 按钮样式 */
+        .btn {
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            padding: 0.5rem 1rem;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn-outline-primary {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+
+        .btn-outline-primary:hover {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: white;
+        }
+
+        .btn-outline-danger {
+            background: #ef4444;
+            color: white;
+            border-color: #ef4444;
+        }
+
+        .btn-outline-danger:hover {
+            background: #dc2626;
+            border-color: #dc2626;
+            color: white;
+        }
+
+        .btn-outline-secondary {
+            background: #6b7280;
+            color: white;
+            border-color: #6b7280;
+        }
+
+        .btn-outline-secondary:hover {
+            background: #4b5563;
+            border-color: #4b5563;
+            color: white;
+        }
+
+        /* 搜索框样式 */
+        .form-control {
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            padding: 0.5rem 0.75rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-control:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            background: white;
+        }
+
+        /* 模态框样式 */
+        .detail-modal {
+            max-width: 80%;
+        }
+
+        .modal-content {
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .modal-header {
+            background: #1e293b;
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .modal-header .btn-close {
+            filter: invert(1);
+        }
+
+        .nav-tabs {
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .nav-tabs .nav-link {
+            border: none;
+            border-radius: 8px 8px 0 0;
+            font-weight: 500;
+            color: #6b7280;
+            transition: all 0.2s ease;
+        }
+
+        .nav-tabs .nav-link.active {
+            background: #3b82f6;
+            color: white;
+            border: none;
+        }
+
+        .nav-tabs .nav-link:hover {
+            background: #f1f5f9;
+            color: #374151;
+        }
+
+        /* 内容区域样式 */
+        .json-viewer {
+            max-height: 300px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            border: 1px solid #e2e8f0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* 专用于请求/响应头列表，不改变空白与布局 */
+        .headers-viewer {
+            max-height: 300px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            border: 1px solid #e2e8f0;
+        }
+
+        .tab-content {
+            padding: 15px;
+        }
+
+        .header-item {
+            margin-bottom: 4px;
+        }
+
+        .header-name {
+            font-weight: 700;
+            color: #1f2937;
+            font-size: 0.75rem;
+        }
+
+        /* 请求头和响应头都加粗 */
+        .request-headers .header-name,
+        .response-headers .header-name {
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        /* 图片/视频预览统一容器，固定高度，确保等比缩小显示 */
+        .media-preview {
+            width: 100%;
+            max-width: 100%;
+            height: 360px; /* 固定预览高度 */
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            background: #fafafa;
+        }
+
+        .media-preview img,
+        .media-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .header-value {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background: #f3f4f6;
+            padding: 2px 4px;
+            border-radius: 4px;
+            word-break: break-all;
+            font-size: 0.7rem;
+            border: 1px solid #edf2f7;
+        }
+
+        /* 高亮规则命中与延迟标记 */
+        .kv-pill {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.7rem;
+        }
+
+        .kv-pill.rule {
+            background: #eef2ff;
+            color: #3730a3;
+            border: 1px solid #c7d2fe;
+        }
+
+        .kv-pill.delay {
+            background: #ecfeff;
+            color: #155e75;
+            border: 1px solid #a5f3fc;
+        }
+
+        .content-preview {
+            max-height: 250px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .raw-viewer {
+            max-height: 320px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            border: 1px solid #e2e8f0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+
+        /* 长 URL 自动换行/断行，避免溢出 */
+        .url-break {
+            word-break: break-all;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        /* 概览信息分组卡片 */
+        .section-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 12px 14px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+
+        .section-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin: 0 0 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #3b82f6;
+            display: inline-block;
+        }
+
+        @media (min-width: 768px) {
+            .overview-col {
+                display: flex;
+            }
+
+            .overview-col .section-card {
+                height: 100%;
+                width: 100%;
+            }
+        }
+
+        .method-badge {
+            font-size: 0.75rem;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .modal-body {
+            font-size: 0.9rem;
+        }
+
+        .modal-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .h6 {
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        /* Toast 样式优化 */
+        .toast-container {
+            z-index: 9999;
+        }
+
+        .toast {
+            min-width: 320px;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .toast.bg-success {
+            background: #10b981 !important;
+            color: white;
+        }
+
+        .toast.bg-danger {
+            background: #ef4444 !important;
+            color: white;
+        }
+
+        .toast.bg-info {
+            background: #3b82f6 !important;
+            color: white;
+        }
+
+        .toast .toast-header {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            background: transparent;
+            color: white;
+            padding: 0.75rem 1rem 0.5rem;
+        }
+
+        .toast .toast-body {
+            padding: 0.5rem 1rem 0.75rem;
+            font-weight: 500;
+        }
+
+        .toast .btn-close {
+            filter: invert(1);
+            opacity: 0.8;
+        }
+
+        .toast .btn-close:hover {
+            opacity: 1;
+        }
+
+        /* 证书二维码样式：单码居中 */
+        .qr-grid {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .qr-box {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .qr-box .qr-title {
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+
+        .qr-box .qr-link {
+            font-size: 0.8rem;
+            color: #2563eb;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .qr-box .qr-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-dark bg-primary">
+    <div class="container-fluid d-flex align-items-center justify-content-between">
+        <span class="navbar-brand">UProxier</span>
+        <div class="d-flex align-items-center gap-2">
+            <div class="dropdown me-1">
+                <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown"
+                        aria-expanded="false">导出
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="/api/export?format=json" target="_blank" rel="noopener">JSON</a>
+                    </li>
+                    <li><a class="dropdown-item" href="/api/export?format=jsonl" target="_blank"
+                           rel="noopener">JSONL</a></li>
+                    <li><a class="dropdown-item" href="/api/export?format=csv" target="_blank" rel="noopener">CSV</a>
+                    </li>
+                </ul>
+            </div>
+            <button class="nav-icon-btn" onclick="openCertQR()" data-bs-toggle="tooltip" data-bs-placement="bottom"
+                    title="扫码下载证书">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm10 0h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v4h-4v-2h2v-2z"/>
+                </svg>
+            </button>
+            <span class="navbar-text" id="server-status">
+                    <span id="server-status-badge" class="badge bg-secondary">检测中…</span>
+                </span>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid mt-3">
+    <!-- 紧凑统计栏 -->
+    <div class="row mb-3" id="stats-bar">
+        <div class="col-12">
+            <div class="stats-bar">
+                <div class="stats-item">
+                    <span class="stats-label">总请求:</span>
+                    <span class="stats-value" id="total-requests">0</span>
+                </div>
+                <div class="stats-item">
+                    <span class="stats-label">已完成:</span>
+                    <span class="stats-value success" id="completed-requests">0</span>
+                </div>
+                <div class="stats-item">
+                    <span class="stats-label">进行中:</span>
+                    <span class="stats-value warning" id="pending-requests">0</span>
+                    <span class="stats-label">错误:</span>
+                    <span class="stats-value danger" id="error-requests">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <div class="input-group">
+                <input type="text" class="form-control" id="search-input" placeholder="搜索请求...">
+                <button class="btn btn-outline-secondary" type="button" onclick="searchTraffic()">搜索</button>
+            </div>
+        </div>
+        <div class="col-md-6 text-end">
+            <button class="btn btn-outline-primary" onclick="refreshData()">刷新</button>
+            <button class="btn btn-outline-danger" onclick="clearTraffic()">清空</button>
+        </div>
+    </div>
+
+    <!-- 流量表格 -->
+    <div class="table-responsive">
+        <table class="table table-striped table-hover traffic-table">
+            <thead class="table-dark">
+            <tr>
+                <th>ID</th>
+                <th>时间</th>
+                <th>方法</th>
+                <th>URL</th>
+                <th>状态</th>
+                <th>响应时间</th>
+            </tr>
+            </thead>
+            <tbody id="traffic-tbody">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 请求详情模态框 -->
+<div class="modal fade" id="requestDetailModal" tabindex="-1" aria-labelledby="requestDetailModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-lg detail-modal">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title" id="requestDetailModalLabel">请求详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body py-2">
+                <ul class="nav nav-tabs nav-tabs-sm" id="detailTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="overview-tab" data-bs-toggle="tab"
+                                data-bs-target="#overview" type="button" role="tab">概览
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="request-tab" data-bs-toggle="tab" data-bs-target="#request"
+                                type="button" role="tab">请求详情
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="response-tab" data-bs-toggle="tab" data-bs-target="#response"
+                                type="button" role="tab">响应详情
+                        </button>
+                    </li>
+
+                </ul>
+                <div class="tab-content" id="detailTabContent">
+                    <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                        <div id="overview-content"></div>
+                    </div>
+                    <div class="tab-pane fade" id="request" role="tabpanel">
+                        <div id="request-content"></div>
+                    </div>
+                    <div class="tab-pane fade" id="response" role="tabpanel">
+                        <div id="response-content"></div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- 证书二维码模态框 -->
+<div class="modal fade" id="certQRModal" tabindex="-1" aria-labelledby="certQRModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2 justify-content-center">
+                <h5 class="modal-title" id="certQRModalLabel">扫码下载 CA 证书</h5>
+            </div>
+            <div class="modal-body">
+                <div class="qr-grid">
+                    <div class="qr-box">
+                        <div id="qr-cer"></div>
+                        <a id="link-cer" href="#" target="_blank" class="qr-link"></a>
+                    </div>
+                    <!-- 仅保留一个二维码，无标题 -->
+                </div>
+                <div class="mt-3 text-muted" style="font-size: 0.85rem;">
+                    请用手机扫码下载，下载后按照系统提示安装到“受信任的根证书”。
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+<!-- Toast 通知容器 -->
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto" id="toast-title">通知</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="toast-body">
+            操作完成
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentData = [];
+    let updateInterval;
+    let currentRequestDetail = null;
+    let isSearching = false;
+    let searchQuery = '';
+    let certQRModalInstance = null;
+
+    // 显示 Toast 通知
+    function showToast(title, message, type = 'success') {
+        const toast = document.getElementById('toast');
+        const toastTitle = document.getElementById('toast-title');
+        const toastBody = document.getElementById('toast-body');
+
+        // 设置标题和内容
+        toastTitle.textContent = title;
+        toastBody.textContent = message;
+
+        // 设置样式
+        toast.className = `toast ${type === 'success' ? 'bg-success text-white' : type === 'error' ? 'bg-danger text-white' : 'bg-info text-white'}`;
+
+        // 显示 toast
+        const bsToast = new bootstrap.Toast(toast);
+        bsToast.show();
+
+        // 3秒后自动隐藏
+        setTimeout(() => {
+            bsToast.hide();
+        }, 3000);
+    }
+
+    // 页面加载完成后初始化
+    document.addEventListener('DOMContentLoaded', function () {
+        startHeartbeat();
+        startStreams();
+    });
+
+    // 刷新数据
+    async function refreshData() {
+        try {
+            const response = await fetch('/api/traffic?limit=100');
+            const result = await response.json();
+            currentData = result.data || [];
+            updateTrafficTable(currentData);
+            updateStats();
+        } catch (error) {
+            showToast('获取数据失败: ' + error.message, 'danger');
+        }
+    }
+
+    function startStreams() {
+        try {
+            // Traffic stream
+            const trafficSource = new EventSource('/api/stream/traffic');
+            if (window.__onSSETrafficOpen) trafficSource.onopen = window.__onSSETrafficOpen;
+            trafficSource.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'traffic') {
+                        const items = msg.data || [];
+                        if (items.length === 0) return;
+                        upsertTraffic(items);
+                        const filtered = isSearching ? currentData.filter(it => matchesSearch(it, searchQuery)) : currentData;
+                        updateTrafficTable(filtered);
+                        updateStats();
+                    }
+                } catch (e) {
+                }
+            };
+            trafficSource.onerror = () => {
+                if (window.__onSSETrafficError) window.__onSSETrafficError(); /* 断线由浏览器自动重连 */
+            };
+
+            // Stats stream
+            const statsSource = new EventSource('/api/stream/stats');
+            if (window.__onSSEStatsOpen) statsSource.onopen = window.__onSSEStatsOpen;
+            statsSource.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'stats') {
+                        const s = msg.data || {};
+                        document.getElementById('total-requests').textContent = s.total_requests ?? 0;
+                        document.getElementById('completed-requests').textContent = s.completed_requests ?? 0;
+                        document.getElementById('error-requests').textContent = s.error_requests ?? 0;
+                        document.getElementById('pending-requests').textContent = s.pending_requests ?? 0;
+                    }
+                } catch (e) {
+                }
+            };
+            statsSource.onerror = () => {
+                if (window.__onSSEStatsError) window.__onSSEStatsError();
+            };
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function upsertTraffic(items) {
+        // 将同 ID 的记录合并更新，不新增重复行
+        if (!Array.isArray(items) || items.length === 0) return;
+        const indexById = new Map();
+        for (let i = 0; i < currentData.length; i++) {
+            const id = currentData[i] && currentData[i].id;
+            if (id != null) indexById.set(id, i);
+        }
+        for (const it of items) {
+            if (!it) continue;
+            const id = it.id;
+            if (id != null && indexById.has(id)) {
+                const idx = indexById.get(id);
+                // 合并字段（后到数据覆盖先前）
+                currentData[idx] = {...currentData[idx], ...it};
+            } else {
+                currentData.push(it);
+                if (id != null) indexById.set(id, currentData.length - 1);
+            }
+        }
+        // 仅保留最近 100 条
+        if (currentData.length > 100) {
+            currentData = currentData.slice(-100);
+        }
+    }
+
+    function matchesSearch(item, keyword) {
+        if (!keyword) return true;
+        const k = keyword.toLowerCase();
+        return (
+            (item.method || '').toLowerCase().includes(k) ||
+            (item.url || '').toLowerCase().includes(k) ||
+            String(item.status_code || '').toLowerCase().includes(k)
+        );
+    }
+
+    // 打开证书下载二维码
+    async function openCertQR() {
+        try {
+            // 优先使用 /api/hosts 返回的局域网可访问地址
+            let base = window.location.origin;
+            try {
+                const resp = await fetch('/api/hosts', {cache: 'no-store'});
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const bases = data.bases || [];
+                    // 优先选带局域网 IP 的 base
+                    const preferred = data.preferred;
+                    base = (bases.find(b => preferred && b.includes(preferred)) || bases[0] || base);
+                }
+            } catch (_) {
+            }
+
+            // 仅保留 DER(.cer) 下载
+            const cerUrl = new URL('/cert/download/cer', base).toString();
+
+            // 构建并展示模态框
+            const modalEl = document.getElementById('certQRModal');
+            if (!certQRModalInstance) {
+                certQRModalInstance = new bootstrap.Modal(modalEl);
+            }
+
+            // 清空旧二维码
+            const cerBox = document.getElementById('qr-cer');
+            cerBox.innerHTML = '';
+
+            // 生成二维码：仅 cer(DER)
+            new QRCode(cerBox, {
+                text: cerUrl,
+                width: 180,
+                height: 180,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
+            // 同步直链文本，便于“在 Safari 打开”或复制
+            const aCer = document.getElementById('link-cer');
+            if (aCer) {
+                aCer.href = cerUrl;
+                aCer.textContent = cerUrl;
+            }
+
+            certQRModalInstance.show();
+        } catch (e) {
+            console.error('生成证书二维码失败:', e);
+            showToast('错误', '生成证书二维码失败', 'error');
+        }
+    }
+
+    // 心跳检测服务器状态改为依赖 SSE 连接状态
+    function startHeartbeat() {
+        const badge = document.getElementById('server-status-badge');
+        // 状态由 SSE 维护：traffic 和 stats 任意一条连接 open 表示运行中；两者都 error 表示断开
+        let trafficUp = false, statsUp = false;
+        let wasUp = false;
+
+        function updateBadge() {
+            const up = trafficUp || statsUp;
+            // 从断开 -> 连接 的跃迁：清空旧数据，等待 SSE 首帧快照
+            if (!wasUp && up) {
+                resetOnReconnect();
+            }
+            wasUp = up;
+            badge.className = up ? 'badge bg-success' : 'badge bg-danger';
+            badge.textContent = up ? '运行中' : '已断开';
+        }
+
+        // 在 startStreams 中会暴露 source 句柄
+        window.__onSSETrafficOpen = () => {
+            trafficUp = true;
+            updateBadge();
+        };
+        window.__onSSETrafficError = () => {
+            trafficUp = false;
+            updateBadge();
+        };
+        window.__onSSEStatsOpen = () => {
+            statsUp = true;
+            updateBadge();
+        };
+        window.__onSSEStatsError = () => {
+            statsUp = false;
+            updateBadge();
+        };
+        updateBadge();
+    }
+
+    function resetOnReconnect() {
+        try {
+            // 记录是否有旧数据，清空本地缓存与表格，等待 SSE 首帧快照回填
+            const hadData = Array.isArray(currentData) && currentData.length > 0;
+            currentData = [];
+            updateTrafficTable([]);
+            // 先重置统计，随后由 /api/stream/stats 快速覆盖
+            document.getElementById('total-requests').textContent = '0';
+            document.getElementById('completed-requests').textContent = '0';
+            document.getElementById('error-requests').textContent = '0';
+            document.getElementById('pending-requests').textContent = '0';
+            // 友好提示：仅当原本有数据时提示；只提示“已重新连接”
+            if (hadData && typeof showToast === 'function') {
+                try {
+                    showToast('已重新连接', '', 'success');
+                } catch (e) {
+                }
+            }
+        } catch (e) { /* ignore */
+        }
+    }
+
+    // 更新流量表格
+    function updateTrafficTable(data) {
+        const tbody = document.getElementById('traffic-tbody');
+        tbody.innerHTML = '';
+
+        data.forEach(req => {
+            const row = document.createElement('tr');
+            row.className = 'clickable-row';
+
+            const statusClass = req.status === 'completed' ? 'success' :
+                req.status === 'error' ? 'danger' : 'warning';
+            const statusText = req.status === 'completed' ? '完成' :
+                req.status === 'error' ? '错误' : '进行中';
+
+            const responseTime = req.response_time ? `${(req.response_time * 1000).toFixed(0)}ms` : '--';
+            const timestamp = new Date(req.timestamp).toLocaleTimeString();
+
+            row.innerHTML = `
+                    <td>${req.id}</td>
+                    <td>${timestamp}</td>
+                    <td><span class="badge bg-secondary method-badge">${req.method}</span></td>
+                    <td class="url-cell" title="${req.url}">${req.url}</td>
+                    <td><span class="badge bg-${statusClass} status-badge">${statusText}</span></td>
+                    <td>${responseTime}</td>
+                `;
+
+            tbody.appendChild(row);
+
+            // 添加点击行的事件监听器
+            row.addEventListener('click', function () {
+                showRequestDetail(req.id);
+            });
+        });
+    }
+
+    // 显示请求详情
+    async function showRequestDetail(requestId) {
+        try {
+            const response = await fetch(`/api/request/${requestId}`);
+            const requestDetail = await response.json();
+
+            if (response.ok) {
+                currentRequestDetail = requestDetail;
+                displayRequestDetail(requestDetail);
+                const modal = new bootstrap.Modal(document.getElementById('requestDetailModal'));
+                modal.show();
+            } else {
+                showToast('错误', '获取请求详情失败: ' + (requestDetail.error || '未知错误'), 'error');
+            }
+        } catch (error) {
+            console.error('获取请求详情失败:', error);
+            showToast('错误', '获取请求详情失败', 'error');
+        }
+    }
+
+    // 显示请求详情内容
+    function displayRequestDetail(requestDetail) {
+        // 概览标签页（包含原始数据预览）
+        const rawSafe = escapeHtml(JSON.stringify(requestDetail, null, 2));
+        document.getElementById('overview-content').innerHTML = `
+                <div class="row g-3">
+                    <div class="col-md-6 overview-col">
+                        <div class="section-card">
+                            <div class="section-title"><span class="dot"></span> 基本信息</div>
+                            <div class="row">
+                                <div class="col-6"><strong>ID:</strong> ${requestDetail.id}</div>
+                                <div class="col-6"><strong>方法:</strong> <span class="badge bg-secondary">${requestDetail.method}</span></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6"><strong>协议:</strong> ${requestDetail.scheme}</div>
+                                <div class="col-6"><strong>端口:</strong> ${requestDetail.port}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12"><strong>主机:</strong> ${requestDetail.host}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12"><strong>URL:</strong> <small class="text-muted url-break">${requestDetail.url}</small></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12"><strong>时间:</strong> <small>${new Date(requestDetail.timestamp).toLocaleString()}</small></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 overview-col">
+                        <div class="section-card">
+                            <div class="section-title"><span class="dot"></span> 状态信息</div>
+                            <div class="row mb-2">
+                                <div class="col-6"><strong>状态:</strong> <span class="badge bg-${requestDetail.status === 'completed' ? 'success' : requestDetail.status === 'error' ? 'danger' : 'warning'}">${requestDetail.status}</span></div>
+                                ${requestDetail.response_status ? `<div class="col-6"><strong>响应:</strong> <span class="badge bg-info">${requestDetail.response_status}</span></div>` : '<div class="col-6"></div>'}
+                            </div>
+                            ${requestDetail.response_time ? `<div class="row mb-2"><div class="col-12"><strong>响应时间:</strong> ${(requestDetail.response_time * 1000).toFixed(0)}ms</div></div>` : ''}
+                            <div class="row">
+                                ${requestDetail.content_size ? `<div class="col-6"><strong>请求:</strong> ${requestDetail.content_size} bytes</div>` : '<div class="col-6"></div>'}
+                                ${requestDetail.response_content_size ? `<div class="col-6"><strong>响应:</strong> ${requestDetail.response_content_size} bytes</div>` : '<div class="col-6"></div>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row g-3 mt-2">
+                    <div class="col-12">
+                        <div class="section-card">
+                            <div class="section-title"><span class="dot"></span> 完整数据（JSON）</div>
+                            <div class="raw-viewer">${rawSafe}</div>
+                        </div>
+                    </div>
+                </div>
+                
+            `;
+
+        // 请求详情：只展示最终（规则应用后）结果；若无修改则回退原始
+        const finalReqHeaders = requestDetail.modified_headers || requestDetail.headers || {};
+        let finalReqContent = (requestDetail.modified_content != null && requestDetail.modified_content !== '') ? requestDetail.modified_content : (requestDetail.content || '');
+        // GET 等无请求体时，展示 URL 查询参数
+        if ((!finalReqContent || finalReqContent === '') && requestDetail && requestDetail.url) {
+            try {
+                const u = new URL(requestDetail.url);
+                if (u.search && u.search.length > 1) {
+                    const params = {};
+                    u.searchParams.forEach((v, k) => {
+                        params[k] = v;
+                    });
+                    finalReqContent = JSON.stringify({query: params}, null, 2);
+                }
+            } catch (e) {
+            }
+        }
+        document.getElementById('request-content').innerHTML = `
+                <h6 class="mb-2">请求头</h6>
+                <div class="headers-viewer request-headers">${formatHeaders(finalReqHeaders)}</div>
+                <h6 class="mt-3 mb-2">请求内容</h6>
+                <div class="content-preview">${formatContent(finalReqContent, requestDetail.is_binary)}</div>
+            `;
+
+        // 响应详情：只展示最终（规则应用后）结果
+        if (requestDetail.response_status) {
+            const rh = requestDetail.response_headers || {};
+            const ruleName = rh['X-Rule-Name'] || rh['x-rule-name'];
+            const delayApplied = (rh['X-Delay-Applied'] || rh['x-delay-applied']) === 'true';
+            const delayMs = rh['X-Delay-Effective'] || rh['x-delay-effective'];
+            const marks = `
+                  ${ruleName ? `<span class="kv-pill rule" title="命中规则">Rule: ${escapeHtml(ruleName)}</span>` : ''}
+                  ${delayApplied ? `<span class="kv-pill delay" title="延迟生效">Delay: ${escapeHtml(String(delayMs || ''))}ms</span>` : ''}
+                `;
+            document.getElementById('response-content').innerHTML = `
+                    <div class="mb-2">${marks}</div>
+                    <h6 class="mb-2">响应头</h6>
+                    <div class="headers-viewer response-headers">${formatHeaders(requestDetail.response_headers || {})}</div>
+                    <h6 class="mt-3 mb-2">响应内容</h6>
+                    ${(() => {
+                const url = requestDetail.response_preview_url || '';
+                const mime = requestDetail.response_preview_mime || '';
+                const isImg = requestDetail.is_response_image;
+                const isVid = requestDetail.is_response_video;
+                if (url && (isImg || isVid)) {
+                    if (isImg) {
+                        return `<div class="media-preview mb-2" id="media-preview"><img id="media-el" src="${url}" alt="image"/></div>`;
+                    }
+                    if (isVid) {
+                        const typeAttr = mime ? ` type="${mime}"` : '';
+                        return `<div class="media-preview mb-2" id="media-preview"><video id="media-el" controls><source src="${url}"${typeAttr}>您的浏览器不支持视频播放</video></div>`;
+                    }
+                }
+                return `<div class="content-preview">${formatContent(requestDetail.response_content, requestDetail.is_response_binary)}</div>`;
+            })()}
+                `;
+            // 渲染后根据宽高比设置容器类，兼容竖屏
+            (function () {
+                const box = document.getElementById('media-preview');
+                const el = document.getElementById('media-el');
+                if (!box || !el) return;
+                const force = () => {
+                    box.style.height = '360px';
+                };
+                if (el.tagName === 'VIDEO') {
+                    el.addEventListener('loadedmetadata', force, {once: true});
+                } else {
+                    if (el.complete) force(); else el.addEventListener('load', force, {once: true});
+                }
+                window.addEventListener('resize', force);
+            })();
+        } else {
+            document.getElementById('response-content').innerHTML = '<p class="text-muted">暂无响应数据</p>';
+        }
+    }
+
+    // 格式化请求头
+    function formatHeaders(headers) {
+        if (!headers || Object.keys(headers).length === 0) {
+            return '<p class="text-muted">无请求头</p>';
+        }
+
+        let html = '<div class="row">';
+        let count = 0;
+        for (const [name, value] of Object.entries(headers)) {
+            if (count % 2 === 0 && count > 0) {
+                html += '</div><div class="row">';
+            }
+            html += `<div class="col-6">
+                    <div class="header-item">
+                        <span class="header-name">${name}:</span>
+                        <span class="header-value">${value}</span>
+                    </div>
+                </div>`;
+            count++;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // 格式化内容
+    function formatContent(content, isBinary) {
+        if (!content) {
+            return '<p class="text-muted">无内容</p>';
+        }
+
+        if (isBinary || content.includes('[BINARY]') || content.includes('[STREAMING]') || content.includes('[LARGE_FILE]')) {
+            return `<p class="text-info">${escapeHtml(content)}</p>`;
+        }
+
+        // 尝试格式化 JSON
+        try {
+            const parsed = JSON.parse(content);
+            const jsonText = JSON.stringify(parsed, null, 2);
+            return `<pre class="json-viewer">${escapeHtml(jsonText)}</pre>`;
+        } catch (e) {
+            // 非 JSON：对潜在 HTML 做转义，防止样式/脚本污染页面
+            const looksHtml = /<\s*(!doctype|html|head|body|script|style|div|span|a|p|h[1-6]|meta|link|title)/i.test(content);
+            const safe = escapeHtml(content);
+            const hint = looksHtml ? '<div class="text-muted mb-1" style="font-size:0.8rem;">HTML 内容已安全转义预览</div>' : '';
+            return `${hint}<pre class="content-preview">${safe}</pre>`;
+        }
+    }
+
+    // HTML 转义，避免注入影响页面样式/脚本
+    function escapeHtml(str) {
+        try {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        } catch (_) {
+            return '';
+        }
+    }
+
+    // 更新统计信息
+    function updateStats() {
+        // 统计信息现在由 SSE 流式更新，此函数不再需要手动调用
+    }
+
+    // 过滤数据
+    function filterData(data, query) {
+        return data.filter(req =>
+            req.url.toLowerCase().includes(query) ||
+            req.method.toLowerCase().includes(query) ||
+            req.host.toLowerCase().includes(query)
+        );
+    }
+
+    // 搜索流量
+    function searchTraffic() {
+        const query = document.getElementById('search-input').value.toLowerCase();
+        searchQuery = query;
+
+        if (query.trim() === '') {
+            // 清空搜索
+            isSearching = false;
+            searchQuery = '';
+            updateTrafficTable(currentData);
+        } else {
+            // 执行搜索
+            isSearching = true;
+            const filteredData = filterData(currentData, query);
+            updateTrafficTable(filteredData);
+        }
+    }
+
+    // 清空流量
+    async function clearTraffic() {
+        if (confirm('确定要清空所有流量数据吗？')) {
+            try {
+                const response = await fetch('/api/clear', {method: 'POST'});
+                const result = await response.json();
+
+                if (result.success) {
+                    // 清空前端状态
+                    currentData = [];
+                    isSearching = false;
+                    searchQuery = '';
+                    document.getElementById('search-input').value = '';
+
+                    // 清空表格和统计
+                    updateTrafficTable([]);
+                    updateStats({
+                        total_requests: 0,
+                        completed_requests: 0,
+                        pending_requests: 0,
+                        error_requests: 0
+                    });
+
+                    // 显示成功提示
+                    showToast('成功', '流量数据已清空！', 'success');
+                    console.log('流量数据已清空');
+                } else {
+                    showToast('失败', '清空失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('清空数据失败:', error);
+                showToast('错误', '清空数据失败: ' + error.message, 'error');
+            }
+        }
+    }
+
+    // 搜索框回车事件
+    document.getElementById('search-input').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            searchTraffic();
+        }
+    });
+
+    // 搜索框输入事件，实时搜索
+    document.getElementById('search-input').addEventListener('input', function (e) {
+        const query = e.target.value.toLowerCase();
+        if (query.trim() === '') {
+            // 清空搜索
+            isSearching = false;
+            searchQuery = '';
+            updateTrafficTable(currentData);
+        }
+    });
+</script>
+</body>
+</html>

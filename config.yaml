@@ -1,0 +1,13 @@
+capture:
+  enable_streaming: false
+  enable_large_files: false
+  large_file_threshold: 1048576
+  save_binary_content: false
+
+proxy:
+  host: 0.0.0.0
+  port: 8001
+  web_port: 8002
+  enable_https: true
+
+rules: [ ]

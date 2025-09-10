@@ -1,0 +1,84 @@
+# 响应延迟示例
+# 功能：为响应添加真实延迟，支持多种分布模式
+
+rules:
+  - name: 固定延迟
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/slow"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          time: 2000  # 固定 2 秒延迟
+
+  - name: 延迟 + 抖动
+    enabled: true
+    priority: 9
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/random"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          time: 1000      # 基础 1 秒
+          jitter: 500     # 0-500ms 随机抖动
+
+  - name: 均匀分布延迟
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/uniform"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          time: 1000
+          jitter: 1000
+          distribution: uniform  # 均匀分布
+
+  - name: 正态分布延迟
+    enabled: true
+    priority: 7
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/normal"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          time: 1000
+          jitter: 500
+          distribution: normal  # 正态分布
+
+  - name: 指数分布延迟
+    enabled: true
+    priority: 6
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/exponential"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          time: 1000
+          jitter: 500
+          distribution: exponential  # 指数分布
+
+  - name: 百分位延迟
+    enabled: true
+    priority: 5
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/percentile"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          p50: 100   # 50% 请求延迟 100ms
+          p95: 500   # 95% 请求延迟 500ms
+          p99: 1000  # 99% 请求延迟 1000ms

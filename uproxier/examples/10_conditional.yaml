@@ -1,0 +1,92 @@
+# 条件执行示例
+# 功能：根据响应状态、头部或内容条件执行不同的动作
+
+rules:
+  - name: 404 转 200 并返回默认内容
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: conditional
+        params:
+          when:
+            status_code: 404
+          then:
+            - action: set_status
+              params: 200
+            - action: replace_body
+              params:
+                from: "{}"
+                to: '{"code":0,"message":"fallback by proxy","data":null}'
+
+  - name: 根据响应头条件执行
+    enabled: true
+    priority: 9
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: conditional
+        params:
+          when:
+            headers:
+              Content-Type: "application/json"
+          then:
+            - action: set_header
+              params:
+                X-JSON-Processed: "true"
+          else:
+            - action: set_header
+              params:
+                X-Non-JSON: "true"
+
+  - name: 根据响应内容条件执行
+    enabled: true
+    priority: 8
+    match:
+      host: "^web\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: conditional
+        params:
+          when:
+            content_contains: "error"
+          then:
+            - action: set_header
+              params:
+                X-Error-Detected: "true"
+            - action: replace_body
+              params:
+                from: "error"
+                to: "handled_error"
+          else:
+            - action: set_header
+              params:
+                X-Success: "true"
+
+  - name: 多重条件组合
+    enabled: true
+    priority: 7
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: conditional
+        params:
+          when:
+            status_code: 500
+            headers:
+              Content-Type: "application/json"
+            content_contains: "database"
+          then:
+            - action: set_status
+              params: 503
+            - action: replace_body
+              params:
+                from: "database"
+                to: "service_unavailable"
+            - action: set_header
+              params:
+                Retry-After: "60"

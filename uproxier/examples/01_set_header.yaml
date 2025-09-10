@@ -1,0 +1,29 @@
+# 设置请求头示例
+# 功能：为匹配的请求添加或覆盖指定的请求头
+
+rules:
+  - name: 设置自定义 User-Agent
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline:
+      - action: set_header
+        params:
+          User-Agent: "Custom-Proxy-Agent/1.0"
+          X-Forwarded-For: "192.168.1.100"
+          X-Custom-Header: "proxy-injected"
+    response_pipeline: [ ]
+
+  - name: 设置响应头
+    enabled: true
+    priority: 9
+    match:
+      host: ".*"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: set_header
+        params:
+          Server: "UProxier/0.1"
+          X-Response-Time: "{{timestamp}}"
+          Cache-Control: "no-cache"

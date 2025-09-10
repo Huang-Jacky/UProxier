@@ -1,0 +1,94 @@
+# 优先级和停止匹配示例
+# 功能：展示规则优先级和 stop_after_match 的使用
+
+rules:
+  - name: 高优先级规则（会先执行）
+    enabled: true
+    priority: 100
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/admin/"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Admin-Access: "true"
+          X-Priority: "100"
+    response_pipeline: [ ]
+
+  - name: 中等优先级规则
+    enabled: true
+    priority: 50
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-API-Access: "true"
+          X-Priority: "50"
+    response_pipeline: [ ]
+
+  - name: 低优先级规则（后执行）
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Default-Header: "true"
+          X-Priority: "10"
+    response_pipeline: [ ]
+
+  - name: 停止匹配规则（执行后不再执行后续规则）
+    enabled: true
+    priority: 80
+    stop_after_match: true
+    match:
+      host: "^block\\.example\\.com$"
+    request_pipeline:
+      - action: short_circuit
+        params:
+          status: 403
+          headers:
+            Content-Type: "application/json"
+          content:
+            error: "Access Denied"
+            message: "This domain is blocked by proxy"
+    response_pipeline: [ ]
+
+  - name: 后续规则（被 stop_after_match 阻止）
+    enabled: true
+    priority: 70
+    match:
+      host: "^block\\.example\\.com$"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Should-Not-Run: "true"
+    response_pipeline: [ ]
+
+  - name: 条件停止匹配
+    enabled: true
+    priority: 60
+    stop_after_match: true
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/critical/"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Critical-Path: "true"
+    response_pipeline:
+      - action: conditional
+        params:
+          when:
+            status_code: 500
+          then:
+            - action: short_circuit
+              params:
+                status: 503
+                headers:
+                  Content-Type: "application/json"
+                content:
+                  error: "Service Unavailable"
+                  message: "Critical service is down"

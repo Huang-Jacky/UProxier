@@ -1,0 +1,98 @@
+# 匹配条件示例
+# 功能：展示各种匹配条件的组合使用
+
+rules:
+  - name: 精确主机匹配
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"  # 精确匹配 api.example.com
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Target: "api-server"
+    response_pipeline: [ ]
+
+  - name: 通配符主机匹配
+    enabled: true
+    priority: 9
+    match:
+      host: ".*\\.example\\.com$"  # 匹配所有 .example.com 子域名
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Domain: "example-com"
+    response_pipeline: [ ]
+
+  - name: 路径前缀匹配
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/v1/"  # 匹配 /v1/ 开头的路径
+    request_pipeline:
+      - action: set_header
+        params:
+          X-API-Version: "v1"
+    response_pipeline: [ ]
+
+  - name: 路径正则匹配
+    enabled: true
+    priority: 7
+    match:
+      host: "^api\\.example\\.com$"
+      path: ".*\\.(json|xml)$"  # 匹配以 .json 或 .xml 结尾的路径
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Data-Format: "structured"
+    response_pipeline: [ ]
+
+  - name: HTTP 方法匹配
+    enabled: true
+    priority: 6
+    match:
+      host: "^api\\.example\\.com$"
+      method: "POST"  # 只匹配 POST 请求
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Method: "POST"
+    response_pipeline: [ ]
+
+  - name: 多条件组合匹配
+    enabled: true
+    priority: 5
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/users/"
+      method: "GET"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Endpoint: "user-list"
+    response_pipeline: [ ]
+
+  - name: 复杂正则匹配
+    enabled: true
+    priority: 4
+    match:
+      host: "^(api|service|backend)\\.example\\.com$"  # 匹配多个子域名
+      path: "^/(v[12]|beta)/"  # 匹配 v1, v2, beta 版本
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Service-Type: "backend"
+    response_pipeline: [ ]
+
+  - name: 排除特定路径
+    enabled: true
+    priority: 3
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^(?!.*\\.(css|js|png|jpg|gif)$).*"  # 排除静态资源
+    request_pipeline:
+      - action: set_header
+        params:
+          X-Dynamic-Content: "true"
+    response_pipeline: [ ]

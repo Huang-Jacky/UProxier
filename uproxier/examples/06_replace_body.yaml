@@ -1,0 +1,41 @@
+# 替换请求/响应体示例
+# 功能：对文本内容进行字符串替换
+
+rules:
+  - name: 替换请求体内容
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+      method: "POST"
+    request_pipeline:
+      - action: replace_body
+        params:
+          from: "production"
+          to: "staging"
+    response_pipeline: [ ]
+
+  - name: 替换响应体内容
+    enabled: true
+    priority: 9
+    match:
+      host: "^web\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body
+        params:
+          from: "https://cdn.example.com"
+          to: "https://local-cdn.example.com"
+
+  - name: 替换 HTML 内容
+    enabled: true
+    priority: 8
+    match:
+      host: "^web\\.example\\.com$"
+      path: ".*\\.html$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body
+        params:
+          from: "</body>"
+          to: "<!-- Injected by UProxier --></body>"

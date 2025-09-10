@@ -1,0 +1,256 @@
+capture:
+  enable_streaming: false
+  enable_large_files: false
+  large_file_threshold: 1048576
+  save_binary_content: true
+  binary_preview_max_bytes: 10485760
+  include:
+    hosts: [ ]
+    paths: [ ]
+    methods: [ "GET", "POST" ]
+  exclude:
+    hosts: [ ".*\\.google\\.com$", ".*\\.googleapis\\.com$", ".*\\.gstatic\\.com$" ]
+    paths: [ ]
+    methods: [ ]
+
+proxy:
+  host: 0.0.0.0
+  port: 8001
+  web_port: 8002
+  enable_https: true
+
+rules:
+  # 1) 基础：按 Host 精确匹配，改请求头
+  - name: 示例 - 修改 User-Agent
+    enabled: false
+    priority: 10
+    match:
+      host: "^example\\.com$"
+    request_pipeline:
+      - action: set_header
+        params:
+          User-Agent: "Custom-Proxy-Agent/1.0"
+    response_pipeline: [ ]
+
+  # 2) 设置/移除响应头
+  - name: 示例 - 统一 Server 响应头
+    enabled: false
+    priority: 9
+    match:
+      host: ".*"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: set_header
+        params:
+          Server: "UProxier/0.1"
+      - action: remove_header
+        params: [ "X-Powered-By", "X-AspNet-Version" ]
+
+  # 3) URL 改写（path 重写、query 设置）
+  - name: 示例 - 重写 URL 路径
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      url_pattern: "/v1/(.*)"
+    request_pipeline:
+      - action: rewrite_url
+        params:
+          from: "/v1/"
+          to: "/v2/"
+      - action: set_query_param
+        params:
+          debug: "1"
+    response_pipeline: [ ]
+
+  # 4) 设置请求体参数（支持 x-www-form-urlencoded 与 JSON；点路径可定位嵌套/数组）
+  - name: 示例 - 设置请求体参数
+    enabled: true
+    priority: 8
+    match:
+      host: "^form\\.example\\.com$"
+      method: "POST"
+    request_pipeline:
+      - action: set_body_param
+        params:
+          "user.profile.name": "Alice"
+          "user.profile.age": 28
+          "items[0].count": 3
+    response_pipeline: [ ]
+
+  # 5) 精准修改 JSON 响应体（replace_body_json）
+  - name: 示例 - 修改 JSON 响应字段
+    enabled: false
+    priority: 7
+    match:
+      host: "^.*\\.detailroi\\.com$"
+      url_pattern: "/datareceiver/receive/v1/api"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            status: 1000000
+          status: 9999
+
+  # 6) 直接替换响应体（text/html、application/json 等）
+  - name: 示例 - 替换响应体为固定 JSON
+    enabled: true
+    priority: 7
+    match:
+      host: "^.*\\.detailroi\\.com$"
+      url_pattern: "/datareceiver/receive/v1/api"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          content: '{"code":0,"msg":"ok","data":{"hello":"world"}, "status": 0}'
+          content_type: "application/json; charset=utf-8"
+
+  # 7) mock_response（内联内容）
+  - name: 示例 - mock 内联响应
+    enabled: true
+    priority: 6
+    match:
+      host: "^mock\\.example\\.com$"
+      url_pattern: "/inline"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          status_code: 200
+          headers:
+            Content-Type: "application/json"
+          content: '{"from":"mock","ok":true}'
+
+  # 8) mock_response（文件）
+  - name: 示例 - mock 文件响应
+    enabled: false  # 示例默认关闭
+    priority: 6
+    match:
+      host: "^mock\\.example\\.com$"
+      url_pattern: "/file"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          file: "./examples/fixtures/resp.json"  # 自行放置
+          status: 200
+          headers:
+            Content-Type: "application/json"
+
+  # 9) 设置状态码 + 重定向
+  - name: 示例 - 302 重定向
+    enabled: true
+    priority: 5
+    match:
+      host: "^old\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: set_status
+        params: 302
+      - action: set_header
+        params:
+          Location: "https://new.example.com/"
+
+  # 10) 响应延迟（固定 + 抖动 + 分布 + 百分位）
+  - name: 示例 - 延迟响应（综合）
+    enabled: true
+    priority: 5
+    match:
+      host: ".*"
+      url_pattern: ".\\.mp4$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: delay
+        params:
+          time: 3000           # 基础毫秒
+          jitter: 200         # 抖动毫秒
+          distribution: uniform  # uniform|normal|exponential
+
+
+  # 11) 条件执行（conditional）
+  - name: 示例 - 命中 404 改 200 并提示
+    enabled: true
+    priority: 4
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: conditional
+        when:
+          status_code: 404
+        then:
+          - action: set_status
+            params: 200
+          - action: replace_body
+            params:
+              from: "{}"
+              to: '{"code":0,"msg":"fallback by rule"}'
+
+  # 12) 短路：请求阶段直接返回构造响应（HTTP 与 HTTPS 内层请求均可命中）
+  - name: 示例 - 短路返回 JSON
+    enabled: false  # 按需开启
+    priority: 3
+    match:
+      host: "^short\\.example\\.com$"
+    request_pipeline:
+      - action: short_circuit
+        params:
+          status: 200
+          headers:
+            Content-Type: "application/json"
+          content: '{"short":"circuit"}'
+    response_pipeline: [ ]
+
+  # 13) 条件替换部分响应内容（contains 触发）
+  - name: 示例 - HTML 内容命中片段则插入标记
+    enabled: true
+    priority: 3
+    match:
+      host: "^web\\.example\\.com$"
+      url_pattern: ".*\\.html$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: conditional
+        when:
+          content_contains: "</body>"
+        then:
+          - action: replace_body
+            params:
+              from: "</body>"
+              to: "<!-- injected by UProxier --></body>"
+
+  # 14) 仅对某方法生效（GET）
+  - name: 示例 - GET 改 Header
+    enabled: false
+    priority: 2
+    match:
+      host: ".*"
+      method: "GET"
+    request_pipeline:
+      - action: set_header
+        params:
+          X-From-UProxier: "1"
+    response_pipeline: [ ]
+
+  # 15) 正则 Host + 路径前缀（/v1/ 开头）
+  - name: 示例 - 多服务前缀匹配
+    enabled: true
+    priority: 2
+    match:
+      host: "^(api|svc)\\.example\\.com$"
+      url_pattern: "^/v1/"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: set_header
+        params:
+          X-Env: "staging"
+
+  # 16) 回退示例：禁用的模板规则（演示 DSL 结构）
+  - name: 模板 - 禁用占位
+    enabled: false
+    priority: 1
+    match: { host: ".*" }
+    request_pipeline: [ ]
+    response_pipeline: [ ]

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uproxier"
+version = "0.1.2"
+description = "HTTP/HTTPS proxy with rules engine and web UI"
+readme = "README_PYPI.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [{ name = "huangjincheng", email = "your-email@example.com" }]
+keywords = ["proxy", "mitmproxy", "sse", "rules", "mock", "http", "https"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+  "Topic :: Software Development :: Testing",
+  "Topic :: System :: Networking",
+]
+dependencies = [
+  "mitmproxy==10.2.4",
+  "flask==3.0.0",
+  "flask-cors==4.0.0",
+  "python-dotenv==1.0.0",
+  "click==8.1.7",
+  "rich==13.7.0",
+  "pyyaml==6.0.1",
+  "requests>=2.31.0",
+]
+
+[project.scripts]
+uproxier = "cli:cli"
+
+[tool.setuptools]
+packages = ["uproxier", "uproxier.examples", "uproxier.templates"]
+py-modules = ["cli", "proxy_server", "web_interface", "rules_engine", "certificate_manager", "version"]
+
+[tool.setuptools.package-data]
+uproxier = ["templates/*.html", "examples/*.yaml", "examples/*.md"]
+
+

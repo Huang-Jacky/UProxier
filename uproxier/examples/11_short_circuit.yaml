@@ -1,0 +1,75 @@
+# 短路响应示例
+# 功能：在请求阶段直接返回构造的响应，不转发到上游
+
+rules:
+  - name: 请求阶段短路返回 JSON
+    enabled: true
+    priority: 10
+    match:
+      host: "^short\\.example\\.com$"
+      path: "^/api/data"
+    request_pipeline:
+      - action: short_circuit
+        params:
+          status: 200
+          headers:
+            Content-Type: "application/json"
+            X-Short-Circuit: "true"
+          content:
+            message: "Short circuit response"
+            data: "This response was generated without hitting upstream"
+            timestamp: "2024-01-01T00:00:00Z"
+    response_pipeline: [ ]
+
+  - name: 响应阶段短路
+    enabled: true
+    priority: 9
+    match:
+      host: "^short\\.example\\.com$"
+      path: "^/response"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: short_circuit
+        params:
+          status: 201
+          headers:
+            Content-Type: "application/json"
+            Location: "/api/created/123"
+          content:
+            id: 123
+            status: "created"
+            message: "Resource created via short circuit"
+
+  - name: 短路返回错误
+    enabled: true
+    priority: 8
+    match:
+      host: "^short\\.example\\.com$"
+      path: "^/error"
+    request_pipeline:
+      - action: short_circuit
+        params:
+          status: 400
+          headers:
+            Content-Type: "application/json"
+          content:
+            error: "Bad Request"
+            message: "This is a short circuit error response"
+            code: "INVALID_REQUEST"
+    response_pipeline: [ ]
+
+  - name: 短路返回重定向
+    enabled: true
+    priority: 7
+    match:
+      host: "^short\\.example\\.com$"
+      path: "^/redirect"
+    request_pipeline:
+      - action: short_circuit
+        params:
+          status: 302
+          headers:
+            Location: "https://example.com/redirected"
+            X-Redirect-Source: "short-circuit"
+          content: "Redirecting..."
+    response_pipeline: [ ]

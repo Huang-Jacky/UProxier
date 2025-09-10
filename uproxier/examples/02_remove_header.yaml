@@ -1,0 +1,29 @@
+# 移除请求/响应头示例
+# 功能：删除匹配请求中的指定请求头或响应头
+
+rules:
+  - name: 移除敏感请求头
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline:
+      - action: remove_header
+        params:
+          - "Authorization"
+          - "Cookie"
+          - "X-API-Key"
+    response_pipeline: [ ]
+
+  - name: 清理响应头
+    enabled: true
+    priority: 9
+    match:
+      host: ".*"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: remove_header
+        params:
+          - "X-Powered-By"
+          - "X-AspNet-Version"
+          - "Server"

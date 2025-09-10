@@ -1,0 +1,60 @@
+# 精确修改 JSON 响应体示例
+# 功能：精确修改 JSON 响应中的指定字段
+
+rules:
+  - name: 单字段修改（扁平语法）
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          status: 1
+          message: "Modified by proxy"
+
+  - name: 多字段修改（批量对象语法）
+    enabled: true
+    priority: 9
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/user"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            "data.id": "12345"
+            "data.name": "Proxy User"
+            "data.status": "active"
+            "meta.timestamp": "2024-01-01T00:00:00Z"
+
+  - name: 嵌套字段修改（点路径语法）
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/order"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            "order.status": "completed"
+            "order.payment.amount": 99.99
+            "order.items.0.quantity": 2
+            "order.shipping.address.city": "Beijing"
+
+  - name: 单键语法糖
+    enabled: true
+    priority: 7
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/config"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          path: "config.debug"
+          value: true

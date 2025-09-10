@@ -1,0 +1,48 @@
+# 设置请求体参数示例
+# 功能：修改表单或 JSON 请求体中的参数
+
+rules:
+  - name: 修改表单参数
+    enabled: true
+    priority: 10
+    match:
+      host: "^form\\.example\\.com$"
+      method: "POST"
+    request_pipeline:
+      - action: set_body_param
+        params:
+          user_id: "12345"
+          session_id: "abc-def-ghi"
+          debug_mode: "true"
+    response_pipeline: [ ]
+
+  - name: 修改 JSON 嵌套参数
+    enabled: true
+    priority: 9
+    match:
+      host: "^api\\.example\\.com$"
+      method: "POST"
+    request_pipeline:
+      - action: set_body_param
+        params:
+          "user.profile.name": "Alice"
+          "user.profile.age": 28
+          "user.settings.theme": "dark"
+          "items.0.count": 3
+          "items.1.name": "item2"
+    response_pipeline: [ ]
+
+  - name: 强制设置认证信息
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      method: "POST"
+      path: "^/auth"
+    request_pipeline:
+      - action: set_body_param
+        params:
+          username: "test_user"
+          password: "test_pass"
+          remember_me: "true"
+    response_pipeline: [ ]

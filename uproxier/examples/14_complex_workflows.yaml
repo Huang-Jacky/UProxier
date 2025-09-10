@@ -1,0 +1,165 @@
+# 复杂工作流示例
+# 功能：展示多个 action 组合使用的复杂场景
+
+rules:
+  - name: API 版本升级工作流
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/v1/"
+    request_pipeline:
+      # 1. 重写 URL 到 v2
+      - action: rewrite_url
+        params:
+          from: "/v1/"
+          to: "/v2/"
+      # 2. 添加版本标识头
+      - action: set_header
+        params:
+          X-API-Version: "v2"
+          X-Original-Version: "v1"
+      # 3. 添加查询参数
+      - action: set_query_param
+        params:
+          migrated: "true"
+          compatibility: "v1"
+    response_pipeline:
+      # 4. 修改响应状态
+      - action: set_status
+        params: 200
+      # 5. 添加响应头
+      - action: set_header
+        params:
+          X-Migrated-From: "v1"
+          X-New-Version: "v2"
+      # 6. 修改 JSON 响应
+      - action: replace_body_json
+        params:
+          values:
+            "meta.version": "v2"
+            "meta.migrated": true
+            "data.compatibility": "v1"
+
+  - name: 认证拦截和重写工作流
+    enabled: true
+    priority: 9
+    match:
+      host: "^api\\.example\\.com$"
+      method: "POST"
+      path: "^/auth"
+    request_pipeline:
+      # 1. 移除原始认证头
+      - action: remove_header
+        params: [ "Authorization", "X-API-Key" ]
+      # 2. 设置新的认证信息
+      - action: set_header
+        params:
+          Authorization: "Bearer proxy-token-12345"
+          X-Proxy-Auth: "true"
+      # 3. 修改请求体参数
+      - action: set_body_param
+        params:
+          "auth.source": "proxy"
+          "auth.timestamp": "2024-01-01T00:00:00Z"
+    response_pipeline:
+      # 4. 检查认证结果
+      - action: conditional
+        params:
+          when:
+            status_code: 401
+          then:
+            - action: set_status
+              params: 200
+            - action: replace_body_json
+              params:
+                values:
+                  "success": true
+                  "token": "proxy-generated-token"
+                  "expires_in": 3600
+          else:
+            - action: set_header
+              params:
+                X-Auth-Success: "true"
+
+  - name: 内容过滤和替换工作流
+    enabled: true
+    priority: 8
+    match:
+      host: "^web\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      # 1. 添加安全头
+      - action: set_header
+        params:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+      # 2. 内容过滤
+      - action: conditional
+        params:
+          when:
+            content_contains: "malicious"
+          then:
+            - action: replace_body
+              params:
+                from: "malicious"
+                to: "filtered"
+            - action: set_header
+              params:
+                X-Content-Filtered: "true"
+      # 3. 注入监控脚本
+      - action: conditional
+        params:
+          when:
+            headers:
+              Content-Type: "text/html"
+          then:
+            - action: replace_body
+              params:
+                from: "</body>"
+                to: "<script>console.log('Page loaded via UProxier');</script></body>"
+
+  - name: 错误处理和降级工作流
+    enabled: true
+    priority: 7
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline: [ ]
+    response_pipeline:
+      # 1. 处理 5xx 错误
+      - action: conditional
+        params:
+          when:
+            status_code: 500
+          then:
+            - action: set_status
+              params: 200
+            - action: replace_body_json
+              params:
+                values:
+                  "success": false
+                  "error": "Service temporarily unavailable"
+                  "fallback": true
+                  "retry_after": 60
+            - action: set_header
+              params:
+                X-Fallback-Response: "true"
+                Retry-After: "60"
+      # 2. 处理 4xx 错误
+      - action: conditional
+        params:
+          when:
+            status_code: 404
+          then:
+            - action: set_status
+              params: 200
+            - action: replace_body_json
+              params:
+                values:
+                  "success": false
+                  "error": "Resource not found"
+                  "suggestion": "Check the API documentation"
+            - action: set_header
+              params:
+                X-404-Handled: "true"

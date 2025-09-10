@@ -1,0 +1,42 @@
+# 设置查询参数示例
+# 功能：为请求 URL 添加或修改查询参数
+
+rules:
+  - name: 添加调试参数
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+    request_pipeline:
+      - action: set_query_param
+        params:
+          debug: "1"
+          version: "v2"
+          source: "proxy"
+    response_pipeline: [ ]
+
+  - name: 强制分页参数
+    enabled: true
+    priority: 9
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/users"
+    request_pipeline:
+      - action: set_query_param
+        params:
+          page: "1"
+          limit: "20"
+    response_pipeline: [ ]
+
+  - name: 添加时间戳参数
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      method: "GET"
+    request_pipeline:
+      - action: set_query_param
+        params:
+          timestamp: "{{timestamp}}"
+          nonce: "{{random}}"
+    response_pipeline: [ ]

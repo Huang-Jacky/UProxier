@@ -1,0 +1,88 @@
+# Mock 响应示例
+# 功能：完全替换响应内容，支持内联内容和文件
+
+rules:
+  - name: Mock JSON 响应
+    enabled: true
+    priority: 10
+    match:
+      host: "^mock\\.example\\.com$"
+      path: "^/api/data"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          status_code: 200
+          headers:
+            Content-Type: "application/json"
+            X-Mocked-By: "UProxier"
+          content:
+            code: 0
+            message: "success"
+            data:
+              id: 123
+              name: "Mock Data"
+              timestamp: "2024-01-01T00:00:00Z"
+
+  - name: Mock 文本响应
+    enabled: true
+    priority: 9
+    match:
+      host: "^mock\\.example\\.com$"
+      path: "^/text"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          status_code: 200
+          headers:
+            Content-Type: "text/plain"
+          content: "This is a mocked text response from UProxier"
+
+  - name: Mock 文件响应
+    enabled: true
+    priority: 8
+    match:
+      host: "^mock\\.example\\.com$"
+      path: "^/file"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          status_code: 200
+          headers:
+            Content-Type: "application/json"
+          file: "./examples/fixtures/mock_response.json"
+
+  - name: Mock 重定向响应
+    enabled: true
+    priority: 7
+    match:
+      host: "^mock\\.example\\.com$"
+      path: "^/redirect"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          status_code: 302
+          headers:
+            Location: "https://example.com/redirected"
+            X-Redirect-Reason: "Mock redirect"
+
+  - name: Mock 错误响应
+    enabled: true
+    priority: 6
+    match:
+      host: "^mock\\.example\\.com$"
+      path: "^/error"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: mock_response
+        params:
+          status_code: 500
+          headers:
+            Content-Type: "application/json"
+          content:
+            error: "Internal Server Error"
+            message: "This is a mocked error response"
+            timestamp: "2024-01-01T00:00:00Z"

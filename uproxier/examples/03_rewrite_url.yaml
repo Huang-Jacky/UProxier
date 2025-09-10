@@ -1,0 +1,38 @@
+# URL 重写示例
+# 功能：修改请求的 URL 路径或查询参数
+
+rules:
+  - name: 路径重写
+    enabled: true
+    priority: 10
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/v1/"
+    request_pipeline:
+      - action: rewrite_url
+        params:
+          from: "/v1/"
+          to: "/v2/"
+    response_pipeline: [ ]
+
+  - name: 完整 URL 重定向
+    enabled: true
+    priority: 9
+    match:
+      host: "^old\\.example\\.com$"
+    request_pipeline:
+      - action: redirect
+        params: "https://new.example.com"
+    response_pipeline: [ ]
+
+  - name: 重定向到指定路径
+    enabled: true
+    priority: 8
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/deprecated"
+    request_pipeline:
+      - action: redirect
+        params:
+          to: "https://api.example.com/v2/migrated"
+    response_pipeline: [ ]
