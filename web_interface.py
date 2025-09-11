@@ -486,7 +486,7 @@ class WebInterface:
             }
         }
 
-    def start(self, port: int = 8081, host: str = "127.0.0.1", silent: bool = False):
+    def start(self, port: int = 8081, host: str = "0.0.0.0", silent: bool = False):
         """启动 Web 界面"""
         if self.is_running:
             return

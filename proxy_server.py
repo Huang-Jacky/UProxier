@@ -646,7 +646,7 @@ class ProxyServer:
         self.is_running = False
         self._process = None  # 用于存储异步启动的进程对象
 
-    def start(self, host: str = "127.0.0.1", port: int = 8001, web_port: int = 8002):
+    def start(self, host: str = "0.0.0.0", port: int = 8001, web_port: int = 8002):
         """启动代理服务器"""
         try:
             # 读取配置：是否启用 HTTPS 拦截
@@ -810,7 +810,7 @@ class ProxyServer:
         finally:
             self.stop()
 
-    def start_async(self, host: str = "127.0.0.1", port: int = 8001, web_port: int = 8002):
+    def start_async(self, host: str = "0.0.0.0", port: int = 8001, web_port: int = 8002):
         """异步启动代理服务器（非阻塞）"""
         import subprocess
         import sys

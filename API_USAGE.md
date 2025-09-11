@@ -17,7 +17,7 @@ from proxy_server import ProxyServer
 proxy = ProxyServer("config.yaml")
 
 # 阻塞启动
-proxy.start("127.0.0.1", 8001, 8002)
+proxy.start("0.0.0.0", 8001, 8002)
 # 这里不会执行，直到服务器停止
 ```
 
@@ -32,7 +32,7 @@ import time
 proxy = ProxyServer("config.yaml", silent=True)
 
 # 异步启动
-proxy.start_async("127.0.0.1", 8001, 8002)
+proxy.start_async("0.0.0.0", 8001, 8002)
 
 # 继续执行其他代码
 print("服务器已在后台启动")
@@ -53,7 +53,7 @@ from proxy_server import ProxyServer
 proxy = ProxyServer("config.yaml", silent=True)
 
 # 异步启动（保存进程对象）
-process = proxy.start_async("127.0.0.1", 8001, 8002)
+process = proxy.start_async("0.0.0.0", 8001, 8002)
 print(f"服务器已启动 (PID: {process.pid})")
 
 # 检查进程状态
@@ -80,7 +80,7 @@ def test_proxy():
     
     try:
         # 启动服务器
-        process = proxy.start_async("127.0.0.1", 8001, 8002)
+        process = proxy.start_async("0.0.0.0", 8001, 8002)
         print(f"代理服务器已启动 (PID: {process.pid})")
         
         # 等待服务器完全启动
@@ -123,7 +123,7 @@ ProxyServer(
 
 ```python
 process = proxy.start_async(
-    host="127.0.0.1",    # 代理服务器地址
+    host="0.0.0.0",    # 代理服务器地址
     port=8001,           # 代理服务器端口
     web_port=8002        # Web界面端口
 )

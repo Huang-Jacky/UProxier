@@ -182,7 +182,7 @@ UProxier 提供了完整的 Python API，支持阻塞和非阻塞两种启动方
 from proxy_server import ProxyServer
 
 proxy = ProxyServer("config.yaml")
-proxy.start("127.0.0.1", 8001, 8002)  # 阻塞启动
+proxy.start("0.0.0.0", 8001, 8002)  # 阻塞启动
 ```
 
 **异步启动**：
@@ -190,7 +190,7 @@ proxy.start("127.0.0.1", 8001, 8002)  # 阻塞启动
 from proxy_server import ProxyServer
 
 proxy = ProxyServer("config.yaml", silent=True)
-proxy.start_async("127.0.0.1", 8001, 8002)  # 非阻塞启动
+proxy.start_async("0.0.0.0", 8001, 8002)  # 非阻塞启动
 # 继续执行其他代码...
 proxy.stop()
 ```
