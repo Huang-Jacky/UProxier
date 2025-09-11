@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uproxier"
-version = "0.1.5"
+version = "0.1.7"
 description = "HTTP/HTTPS proxy with rules engine and web UI"
 readme = "README_PYPI.md"
 requires-python = ">=3.8"
@@ -37,11 +37,10 @@ dependencies = [
 ]
 
 [project.scripts]
-uproxier = "cli:cli"
+uproxier = "uproxier.cli:cli"
 
 [tool.setuptools]
 packages = ["uproxier", "uproxier.examples", "uproxier.templates"]
-py-modules = ["cli", "proxy_server", "web_interface", "rules_engine", "certificate_manager", "version"]
 
 [tool.setuptools.package-data]
 uproxier = ["templates/*.html", "examples/*.yaml", "examples/*.md"]

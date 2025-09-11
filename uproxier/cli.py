@@ -18,10 +18,10 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from certificate_manager import CertificateManager
-from proxy_server import ProxyServer
-from rules_engine import RulesEngine
-from version import get_version, get_author
+from .certificate_manager import CertificateManager
+from .proxy_server import ProxyServer
+from .rules_engine import RulesEngine
+from .version import get_version, get_author
 
 console = Console()
 
@@ -209,7 +209,7 @@ def start(host: str, port: int, web_port: int, config: str, save_path: Optional[
 
     if daemon:
         # 后台模式启动，构建启动命令
-        cmd = [sys.executable, 'cli.py', 'start', '--host', host, '--port', str(port),
+        cmd = [sys.executable, '-m', 'uproxier.cli', 'start', '--host', host, '--port', str(port),
                '--web-port', str(web_port), '--config', config, '--silent']
 
         if save_path:

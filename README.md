@@ -39,15 +39,32 @@ pip install -r requirements.txt
 
 ## 快速开始
 
-### 首次使用（自动生成证书）
+### 从 PyPI 安装（推荐）
 
 1. 安装 UProxier
 
 ```bash
-# 从 PyPI 安装（推荐）
 pip install uproxier
+```
 
-# 或从源码安装
+2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/` CA 证书；启动面板将显示证书路径与有效期）
+
+```bash
+uproxier start
+```
+
+3. 安装证书
+
+```bash
+uproxier cert
+# 选择安装到系统，或按提示手动安装
+```
+
+### 从源码安装
+
+1. 安装 UProxier
+
+```bash
 git clone https://github.com/Huang-Jacky/UProxier.git
 cd UProxier
 pip install -r requirements.txt
@@ -56,12 +73,17 @@ pip install -r requirements.txt
 2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/` CA 证书；启动面板将显示证书路径与有效期）
 
 ```bash
-# 从 PyPI 安装后
-uproxier start
-
-# 从源码运行
 python3 cli.py start
 ```
+
+3. 安装证书
+
+```bash
+python3 cli.py cert
+# 选择安装到系统，或按提示手动安装
+```
+
+### 首次使用（自动生成证书）
 
 3. 安装证书
 
@@ -101,7 +123,15 @@ python3 cli.py cert
 #### 帮助信息
 
 ```
-# 显示帮助
+# 从 PyPI 安装后使用
+uproxier --help
+uproxier start --help      # 查看启动命令的所有参数
+uproxier examples --help   # 查看示例管理命令的所有参数
+uproxier cert --help       # 查看证书管理命令的所有参数
+uproxier init --help       # 查看初始化命令的所有参数
+uproxier version --help    # 查看版本命令的所有参数
+
+# 从源码运行
 python3 cli.py --help
 python3 cli.py start --help      # 查看启动命令的所有参数
 python3 cli.py examples --help   # 查看示例管理命令的所有参数
@@ -113,7 +143,12 @@ python3 cli.py version --help    # 查看版本命令的所有参数
 #### 全局选项
 
 ```bash
-# 全局选项
+# 从 PyPI 安装后使用
+uproxier --verbose          # 详细输出
+uproxier --config <path>    # 指定配置文件路径
+uproxier --version          # 显示版本信息
+
+# 从源码运行
 python3 cli.py --verbose          # 详细输出
 python3 cli.py --config <path>    # 指定配置文件路径
 python3 cli.py --version          # 显示版本信息
@@ -124,6 +159,20 @@ python3 cli.py --version          # 显示版本信息
 **启动代理服务器**
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier start \
+  --host 0.0.0.0 \                # 代理服务器监听地址
+  --port 8001 \                   # 代理服务器端口
+  --web-port 8002 \               # Web 界面端口
+  --config <path> \               # 配置文件路径
+  --save ./logs/traffic.jsonl \   # 保存请求数据到文件
+  --save-format jsonl \           # 保存格式
+  --enable-https \                # 启用 HTTPS 解密（覆盖配置）
+  --disable-https \               # 禁用 HTTPS 解密（覆盖配置）
+  --silent                        # 静默模式，不输出任何信息
+  --daemon                        # 后台模式启动
+
+# 从源码运行
 python3 cli.py start \
   --host 0.0.0.0 \                # 代理服务器监听地址
   --port 8001 \                   # 代理服务器端口
@@ -140,12 +189,21 @@ python3 cli.py start \
 **证书管理**
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier cert               # 管理证书（生成、安装、清理）
+
+# 从源码运行
 python3 cli.py cert               # 管理证书（生成、安装、清理）
 ```
 
 **服务器控制**
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier status             # 查看服务器状态
+uproxier stop               # 停止后台运行的服务器
+
+# 从源码运行
 python3 cli.py status             # 查看服务器状态
 python3 cli.py stop               # 停止后台运行的服务器
 ```
@@ -153,18 +211,33 @@ python3 cli.py stop               # 停止后台运行的服务器
 **初始化配置**
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier init --config <path>                 # 指定配置文件路径
+
+# 从源码运行
 python3 cli.py init --config <path>                 # 指定配置文件路径
 ```
 
 **版本信息**
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier version            # 显示版本信息
+
+# 从源码运行
 python3 cli.py version            # 显示版本信息
 ```
 
 **规则示例管理**
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier examples --list                    # 列出所有可用示例
+uproxier examples --readme                  # 显示示例说明文档
+uproxier examples --show <文件名>           # 显示指定示例内容
+uproxier examples --copy <文件名>           # 复制示例到当前目录
+
+# 从源码运行
 python3 cli.py examples --list                    # 列出所有可用示例
 python3 cli.py examples --readme                  # 显示示例说明文档
 python3 cli.py examples --show <文件名>           # 显示指定示例内容
@@ -352,6 +425,17 @@ params: <参数，随行为不同而异>
 项目内置了部分规则示例，可以通过 CLI 命令查看和使用：
 
 ```bash
+# 从 PyPI 安装后使用
+# 查看所有可用示例
+uproxier examples --list
+
+# 查看示例说明文档
+uproxier examples --readme
+
+# 复制示例到当前目录进行修改
+uproxier examples --copy 01_set_header.yaml
+
+# 从源码运行
 # 查看所有可用示例
 python3 cli.py examples --list
 
@@ -527,6 +611,11 @@ python3 cli.py examples --copy 01_set_header.yaml
 ### 自动安装
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier cert
+# 选择 "安装证书到系统"
+
+# 从源码运行
 python3 cli.py cert
 # 选择 "安装证书到系统"
 ```
@@ -625,10 +714,10 @@ UProxier/
 
 2. **证书错误**
     - 确保证书已正确安装到系统
-    - 重新生成证书：`uproxier cert` 或 `python3 cli.py cert`
+    - 重新生成证书：`uproxier cert`（PyPI 安装）或 `python3 cli.py cert`（源码安装）
 
 3. **端口被占用**
-    - 使用不同的端口：`uproxier start --port 8003` 或 `python3 cli.py start --port 8003`
+    - 使用不同的端口：`uproxier start --port 8003`（PyPI 安装）或 `python3 cli.py start --port 8003`（源码安装）
 
 4. **规则不生效**
     - 检查规则配置是否正确
@@ -645,6 +734,10 @@ UProxier/
 启用详细日志：
 
 ```bash
+# 从 PyPI 安装后使用
+uproxier --verbose start
+
+# 从源码运行
 python3 cli.py --verbose start
 ```
 
@@ -659,3 +752,4 @@ MIT License
 ## 参考
 
 - [mitmproxy](https://mitmproxy.org/)
+

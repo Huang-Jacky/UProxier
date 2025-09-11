@@ -14,9 +14,9 @@ from mitmproxy import http
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
 
-from certificate_manager import CertificateManager
-from rules_engine import RulesEngine
-from web_interface import WebInterface
+from .certificate_manager import CertificateManager
+from .rules_engine import RulesEngine
+from .web_interface import WebInterface
 
 logger = logging.getLogger(__name__)
 
@@ -815,32 +815,9 @@ class ProxyServer:
         import subprocess
         import sys
         import os
-        import pkg_resources
-
-        try:
-            # 尝试直接导入 cli 模块获取路径
-            import cli
-            cli_path = cli.__file__
-        except ImportError:
-            # 如果无法导入，尝试通过 importlib.util 获取
-            try:
-                import importlib.util
-                spec = importlib.util.find_spec('cli')
-                if spec and spec.origin:
-                    cli_path = spec.origin
-                else:
-                    # 尝试通过 pkg_resources 获取
-                    try:
-                        cli_path = pkg_resources.resource_filename('cli', '__init__.py')
-                        if cli_path.endswith('__init__.py'):
-                            cli_path = cli_path[:-12] + 'cli.py'
-                    except:
-                        cli_path = "cli.py"
-            except:
-                cli_path = "cli.py"
 
         # 构建启动命令
-        cmd = [sys.executable, cli_path, "start",
+        cmd = [sys.executable, "-m", "uproxier.cli", "start",
                "--host", host, "--port", str(port),
                "--web-port", str(web_port), "--config", self.config_path, "--silent"]
 
@@ -858,21 +835,29 @@ class ProxyServer:
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
                 cwd=os.getcwd()
             )
 
-            # 等待进程启动
-            time.sleep(0.5)
-
-            # 检查进程是否还在运行
-            if process.poll() is not None:
-                # 进程已退出，获取错误信息
-                stdout, stderr = process.communicate()
-                error_msg = stderr.decode() if stderr else "无错误信息"
-                stdout_msg = stdout.decode() if stdout else "无输出信息"
-                raise RuntimeError(f"后台进程启动失败: {error_msg}\n输出: {stdout_msg}")
+            max_wait = 3.0 
+            wait_interval = 0.1
+            waited = 0.0
+            
+            while waited < max_wait:
+                time.sleep(wait_interval)
+                waited += wait_interval
+                
+                # 检查进程是否还在运行
+                if process.poll() is not None:
+                    # 进程已退出，获取错误信息
+                    _, stderr = process.communicate()
+                    error_msg = stderr.decode() if stderr else "无错误信息"
+                    raise RuntimeError(f"后台进程启动失败: {error_msg}")
+                
+                # 如果进程还在运行且等待时间足够，可以退出
+                if waited >= 0.5:  # 至少等待 0.5 秒
+                    break
 
             # 设置运行状态
             self.is_running = True
