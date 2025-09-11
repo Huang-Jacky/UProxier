@@ -815,9 +815,32 @@ class ProxyServer:
         import subprocess
         import sys
         import os
+        import pkg_resources
+
+        try:
+            # 尝试直接导入 cli 模块获取路径
+            import cli
+            cli_path = cli.__file__
+        except ImportError:
+            # 如果无法导入，尝试通过 importlib.util 获取
+            try:
+                import importlib.util
+                spec = importlib.util.find_spec('cli')
+                if spec and spec.origin:
+                    cli_path = spec.origin
+                else:
+                    # 尝试通过 pkg_resources 获取
+                    try:
+                        cli_path = pkg_resources.resource_filename('cli', '__init__.py')
+                        if cli_path.endswith('__init__.py'):
+                            cli_path = cli_path[:-12] + 'cli.py'
+                    except:
+                        cli_path = "cli.py"
+            except:
+                cli_path = "cli.py"
 
         # 构建启动命令
-        cmd = [sys.executable, "cli.py", "start",
+        cmd = [sys.executable, cli_path, "start",
                "--host", host, "--port", str(port),
                "--web-port", str(web_port), "--config", self.config_path, "--silent"]
 
