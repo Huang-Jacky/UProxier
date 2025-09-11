@@ -69,15 +69,24 @@ uproxier start \
   --web-port 8002 \               # Web 界面端口
   --config <path> \               # 配置文件路径
   --save ./logs/traffic.jsonl \   # 保存请求数据到文件
+  --save-format jsonl \           # 保存格式
   --enable-https \                # 启用 HTTPS 解密
   --disable-https \               # 禁用 HTTPS 解密
   --silent                        # 静默模式
+  --daemon                        # 后台模式启动
 ```
 
 **证书管理**
 
 ```bash
 uproxier cert                     # 管理证书（生成、安装、清理）
+```
+
+**服务器控制**
+
+```bash
+uproxier status                   # 查看服务器状态
+uproxier stop                     # 停止后台运行的服务器
 ```
 
 **规则示例管理**
@@ -92,29 +101,45 @@ uproxier examples --copy <文件名> # 复制示例到当前目录
 **其他命令**
 
 ```bash
+uproxier --verbose                # 详细输出
 uproxier --version                # 显示版本信息
 uproxier --help                   # 显示帮助信息
 ```
 
 ## API 使用
 
-在你的 Python 代码中直接调用以启动/停止代理与 Web 界面。
+UProxier 提供了完整的 Python API，支持阻塞和非阻塞两种启动方式。
 
+### 快速示例
+
+**阻塞启动**：
 ```python
 from proxy_server import ProxyServer
 
-server = ProxyServer(
-    config_path="config.yaml",
-    save_path="./logs/traffic.jsonl",  # 可选：保存请求数据
-    silent=False,
-    enable_https=True
-)
-
-try:
-    server.start(host="0.0.0.0", port=8001, web_port=8002)
-finally:
-    server.stop()
+proxy = ProxyServer("config.yaml")
+proxy.start("127.0.0.1", 8001, 8002)  # 阻塞启动
 ```
+
+**异步启动**：
+```python
+from proxy_server import ProxyServer
+
+proxy = ProxyServer("config.yaml", silent=True)
+proxy.start_async("127.0.0.1", 8001, 8002)  # 非阻塞启动
+# 继续执行其他代码...
+proxy.stop()
+```
+
+### 详细文档
+
+完整的 API 使用指南请参考：[API_USAGE.md](https://github.com/Huang-Jacky/UProxier/blob/main/API_USAGE.md)
+
+包含：
+- 阻塞启动 vs 异步启动的使用场景
+- 完整的参数说明和示例
+- 进程管理和状态检查
+- 错误处理和最佳实践
+- 测试和自动化场景示例
 
 ## 规则配置
 

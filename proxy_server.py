@@ -633,6 +633,8 @@ class ProxyServer:
     def __init__(self, config_path: str = "config.yaml", save_path: Optional[str] = None, save_format: str = 'jsonl',
                  silent: bool = False, enable_https: Optional[bool] = None):
         self.config_path = config_path
+        self.save_path = save_path
+        self.save_format = save_format
         self.silent = silent
         self.enable_https_override = enable_https
         self.rules_engine = RulesEngine(config_path, silent=self.silent)
@@ -642,6 +644,7 @@ class ProxyServer:
                                 silent=self.silent, config_path=self.config_path)
         self.master = None
         self.is_running = False
+        self._process = None  # 用于存储异步启动的进程对象
 
     def start(self, host: str = "127.0.0.1", port: int = 8001, web_port: int = 8002):
         """启动代理服务器"""
@@ -807,8 +810,79 @@ class ProxyServer:
         finally:
             self.stop()
 
+    def start_async(self, host: str = "127.0.0.1", port: int = 8001, web_port: int = 8002):
+        """异步启动代理服务器（非阻塞）"""
+        import subprocess
+        import sys
+        import os
+
+        # 构建启动命令
+        cmd = [sys.executable, "cli.py", "start",
+               "--host", host, "--port", str(port),
+               "--web-port", str(web_port), "--config", self.config_path, "--silent"]
+
+        if self.save_path:
+            cmd.extend(["--save", self.save_path, "--save-format", self.save_format])
+
+        if self.enable_https_override is not None:
+            if self.enable_https_override:
+                cmd.append("--enable-https")
+            else:
+                cmd.append("--disable-https")
+
+        try:
+            # 启动后台进程
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                cwd=os.getcwd()
+            )
+
+            # 等待进程启动
+            time.sleep(0.5)
+
+            # 检查进程是否还在运行
+            if process.poll() is not None:
+                # 进程已退出，获取错误信息
+                stdout, stderr = process.communicate()
+                error_msg = stderr.decode() if stderr else "无错误信息"
+                stdout_msg = stdout.decode() if stdout else "无输出信息"
+                raise RuntimeError(f"后台进程启动失败: {error_msg}\n输出: {stdout_msg}")
+
+            # 设置运行状态
+            self.is_running = True
+            self._process = process  # 保存进程引用，用于停止
+
+            if not self.silent:
+                logger.info(f"服务器已在后台启动 (PID: {process.pid})")
+                logger.info(f"代理地址: {host}:{port}")
+                logger.info(f"Web 界面: http://{host}:{web_port}")
+
+            return process
+
+        except Exception as e:
+            if not self.silent:
+                logger.error(f"启动失败: {e}")
+            raise
+
     def stop(self):
         """停止代理服务器"""
+        if hasattr(self, '_process') and self._process:
+            # 停止通过 start_async 启动的进程
+            import subprocess
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+            except Exception as e:
+                if not self.silent:
+                    logger.error(f"停止进程失败: {e}")
+            finally:
+                self._process = None
+
         if self.master:
             self.master.shutdown()
         if self.web_interface:

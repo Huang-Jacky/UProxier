@@ -134,12 +134,20 @@ python3 cli.py start \
   --enable-https \                # 启用 HTTPS 解密（覆盖配置）
   --disable-https \               # 禁用 HTTPS 解密（覆盖配置）
   --silent                        # 静默模式，不输出任何信息
+  --daemon                        # 后台模式启动
 ```
 
 **证书管理**
 
 ```bash
 python3 cli.py cert               # 管理证书（生成、安装、清理）
+```
+
+**服务器控制**
+
+```bash
+python3 cli.py status             # 查看服务器状态
+python3 cli.py stop               # 停止后台运行的服务器
 ```
 
 **初始化配置**
@@ -165,75 +173,38 @@ python3 cli.py examples --copy <文件名>           # 复制示例到当前目�
 
 ## API 使用
 
-在你的 Python 代码中直接调用以启动/停止代理与 Web 界面。
+UProxier 提供了完整的 Python API，支持阻塞和非阻塞两种启动方式。
 
-最小示例（阻塞式启动）
+### 快速示例
 
+**阻塞启动**：
 ```python
 from proxy_server import ProxyServer
 
-server = ProxyServer(
-    config_path="config.yaml",
-    save_path=None,  # 如需抓包持久化可给 ./logs/traffic.jsonl
-    save_format="jsonl",
-    silent=False,
-    enable_https=None  # True/False 覆盖配置；None 表示按配置文件
-)
-
-try:
-    server.start(host="0.0.0.0", port=8001, web_port=8002)
-finally:
-    server.stop()
+proxy = ProxyServer("config.yaml")
+proxy.start("127.0.0.1", 8001, 8002)  # 阻塞启动
 ```
 
-后台线程启动（嵌入到现有服务）：
-
-```python
-import threading, time
-from proxy_server import ProxyServer
-
-server = ProxyServer(config_path="config.yaml", silent=True)
-
-t = threading.Thread(target=server.start, kwargs={"host": "0.0.0.0", "port": 8001, "web_port": 8002}, daemon=True)
-t.start()
-
-# 你的业务逻辑...
-time.sleep(30)
-
-server.stop()
-t.join(timeout=5)
-```
-
-覆盖配置项（HTTPS 开关、抓包持久化等）：
-
+**异步启动**：
 ```python
 from proxy_server import ProxyServer
 
-server = ProxyServer(
-    config_path="examples/config_examples.yaml",
-    save_path="./logs/traffic.jsonl",
-    save_format="jsonl",
-    silent=False,
-    enable_https=True,
-)
-server.start(host="127.0.0.1", port=8001, web_port=8002)
+proxy = ProxyServer("config.yaml", silent=True)
+proxy.start_async("127.0.0.1", 8001, 8002)  # 非阻塞启动
+# 继续执行其他代码...
+proxy.stop()
 ```
 
-仅生成/校验证书（不启动服务）：
+### 详细文档
 
-```python
-from certificate_manager import CertificateManager
+完整的 API 使用指南请参考：[API_USAGE.md](API_USAGE.md)
 
-cm = CertificateManager(cert_dir="~/.uproxier", silent=False)
-cm.ensure_certificates()
-print(cm.get_installation_instructions())
-```
-
-说明：
-
-- 首次启动会在用户目录 `~/.uproxier/` 自动生成 CA 证书；Web 可扫码下载。
-- `silent=True` 可抑制控制台输出，适合嵌入式场景。
-- 如需"热加载规则"，可通过更新 `config.yaml` 并重启进程；若需要进程内 `reload_rules()` API，可加需求后提供。
+包含：
+- 阻塞启动 vs 异步启动的使用场景
+- 完整的参数说明和示例
+- 进程管理和状态检查
+- 错误处理和最佳实践
+- 测试和自动化场景示例
 
 ### 抓包配置
 
