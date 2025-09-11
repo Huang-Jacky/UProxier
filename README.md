@@ -595,47 +595,6 @@ UProxier/
     └── examples/       # 内置示例
 ```
 
-## 开发
-
-### 运行测试
-
-```bash
-# 启动代理服务器
-python3 proxy_server.py
-
-# 使用 curl 测试
-curl -x http://<本机IP>:8001 http://httpbin.org/get
-```
-
-### 添加新功能
-
-1. 在相应的模块中添加功能
-2. 更新 CLI 工具
-3. 更新 Web 界面（如需要）
-4. 更新文档
-
-### 发布到 PyPI
-
-使用项目提供的发布脚本：
-
-```bash
-# 自动发布流程
-python3 publish.py
-```
-
-或手动发布：
-
-```bash
-# 构建包
-python3 -m build
-
-# 检查包
-python3 -m twine check dist/*
-
-# 发布到 PyPI
-python3 -m twine upload dist/*
-```
-
 ## 故障排除
 
 ### 常见问题
