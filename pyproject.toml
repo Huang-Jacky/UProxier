@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uproxier"
-version = "0.1.7"
+version = "0.1.8"
 description = "HTTP/HTTPS proxy with rules engine and web UI"
 readme = "README_PYPI.md"
 requires-python = ">=3.8"

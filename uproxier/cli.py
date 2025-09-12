@@ -82,6 +82,19 @@ def cleanup_pid_file():
         pass
 
 
+def is_service_ready(host, port, timeout=1):
+    """检查服务是否真正就绪"""
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
 @click.group()
 @click.option('--verbose', '-v', is_flag=True, help='详细输出')
 @click.option('--config', default='config.yaml', help='配置文件路径')
@@ -230,11 +243,44 @@ def start(host: str, port: int, web_port: int, config: str, save_path: Optional[
                 cwd=os.getcwd()
             )
 
-            # 短暂等待让进程启动，然后检查是否还在运行
-            time.sleep(0.5)
+            max_wait = 5.0
+            wait_interval = 0.2
+            waited = 0.0
+            service_ready = False
 
+            while waited < max_wait:
+                time.sleep(wait_interval)
+                waited += wait_interval
+
+                if process.poll() is not None:
+                    # 进程已退出，获取错误信息
+                    stdout, stderr = process.communicate()
+                    if not silent:
+                        console.print(f"[red]后台进程启动失败[/red]")
+                        if stderr:
+                            console.print(f"[red]错误信息: {stderr.decode()}[/red]")
+                        if stdout:
+                            console.print(f"[red]输出信息: {stdout.decode()}[/red]")
+                    sys.exit(1)
+
+                if waited >= 0.5 and is_service_ready(host, web_port):
+                    service_ready = True
+                    if not silent:
+                        console.print(f"[green]服务已就绪 (等待时间: {waited:.1f}s)[/green]")
+                    break
+
+                if waited >= 3.0 and not silent:
+                    console.print(f"[yellow]服务启动较慢，继续等待... (已等待 {waited:.1f}s)[/yellow]")
+
+            if not service_ready:
+                if not silent:
+                    console.print(f"[red]服务启动超时 (等待时间: {waited:.1f}s)[/red]")
+                    console.print("[yellow]请检查配置和端口是否可用[/yellow]")
+                process.terminate()
+                sys.exit(1)
+
+            # 再次检查进程状态
             if process.poll() is not None:
-                # 进程已退出，获取错误信息
                 stdout, stderr = process.communicate()
                 if not silent:
                     console.print(f"[red]后台进程启动失败[/red]")
