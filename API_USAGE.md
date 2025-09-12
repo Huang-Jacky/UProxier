@@ -11,7 +11,7 @@ UProxier 提供了两种启动方式：
 ### 1. 阻塞启动
 
 ```python
-from proxy_server import ProxyServer
+from uproxier.proxy_server import ProxyServer
 
 # 创建代理服务器实例
 proxy = ProxyServer("config.yaml")
@@ -25,7 +25,7 @@ proxy.start("0.0.0.0", 8001, 8002)
 
 **简单使用（推荐）**：
 ```python
-from proxy_server import ProxyServer
+from uproxier.proxy_server import ProxyServer
 import time
 
 # 创建代理服务器实例
@@ -47,7 +47,7 @@ proxy.stop()
 
 **需要进程管理时**：
 ```python
-from proxy_server import ProxyServer
+from uproxier.proxy_server import ProxyServer
 
 # 创建代理服务器实例
 proxy = ProxyServer("config.yaml", silent=True)
@@ -70,7 +70,7 @@ proxy.stop()
 
 ```python
 #!/usr/bin/env python3
-from proxy_server import ProxyServer
+from uproxier.proxy_server import ProxyServer
 import time
 import requests
 
