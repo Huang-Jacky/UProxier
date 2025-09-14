@@ -20,6 +20,9 @@ from .web_interface import WebInterface
 
 logger = logging.getLogger(__name__)
 
+# 默认监听地址
+DEFAULT_HOST = "0.0.0.0"
+
 
 class ProxyAddon:
     """代理服务器插件，处理请求和响应"""
@@ -646,7 +649,7 @@ class ProxyServer:
         self.is_running = False
         self._process = None  # 用于存储异步启动的进程对象
 
-    def start(self, host: str = "0.0.0.0", port: int = 8001, web_port: int = 8002):
+    def start(self, port: int = 8001, web_port: int = 8002):
         """启动代理服务器"""
         try:
             # 读取配置：是否启用 HTTPS 拦截
@@ -657,7 +660,7 @@ class ProxyServer:
                 if config_path.exists():
                     with open(config_path, 'r', encoding='utf-8') as f:
                         cfg = yaml.safe_load(f) or {}
-                    enable_https = bool(((cfg or {}).get('proxy') or {}).get('enable_https', True))
+                    enable_https = bool(((cfg or {}).get('capture') or {}).get('enable_https', True))
             except Exception as _:
                 enable_https = True
 
@@ -691,7 +694,8 @@ class ProxyServer:
                 os.environ['MITMPROXY_QUIET'] = '1'
                 os.environ['MITMPROXY_TERMLOG_VERBOSITY'] = 'error'
 
-            # 配置 mitmproxy
+            # 配置 mitmproxy（固定监听地址）
+            host = DEFAULT_HOST
             if enable_https:
                 opts = options.Options(
                     listen_host=host,
@@ -711,14 +715,11 @@ class ProxyServer:
                     ignore_hosts=[r".*"]
                 )
 
-            # 启动 Web 界面：若代理绑定在回环(127.0.0.1/localhost)，则让 Web 绑定 0.0.0.0，确保局域网可访问
-            if host in ("127.0.0.1", "localhost", "::1"):
-                web_host = "0.0.0.0"
-            else:
-                web_host = host if host not in ("0.0.0.0", "::") else "0.0.0.0"
+            # 启动 Web 界面：固定绑定地址，确保局域网可访问
+            web_host = DEFAULT_HOST
             # 注入运行时元信息供 /api/meta 使用
             try:
-                # 计算用于展示的 web 主机（0.0.0.0 时转为局域网 IP）
+                # 计算用于展示的 web 主机（DEFAULT_HOST 时转为局域网 IP）
                 web_display_host = self._prefer_lan_host(web_host)
                 # 读取证书路径与指纹
                 cert_path = None
@@ -740,7 +741,7 @@ class ProxyServer:
                     pass
                 self.web_interface.server_meta = {
                     'config_path': str(Path(self.config_path).resolve()),
-                    'proxy': {'host': host, 'port': port},
+                    'proxy': {'host': DEFAULT_HOST, 'port': port},
                     'web': {'host': web_host, 'port': web_port, 'display_host': web_display_host},
                     'https_enabled': bool(enable_https),
                     'certificate': {'path': cert_path, 'sha256': cert_fingerprint}
@@ -749,7 +750,7 @@ class ProxyServer:
                 self.web_interface.server_meta = {}
             self.web_interface.start(web_port, host=web_host, silent=self.silent)
 
-            # 启动代理服务器（展示友好地址）
+            # 启动代理服务器
             display_host = self._prefer_lan_host(host)
             if not self.silent:
                 logger.info(f"启动代理服务器: {display_host}:{port}")
@@ -779,7 +780,7 @@ class ProxyServer:
 
                 # 将 Web 界面目标标记为内部域，避免规则误拦
                 try:
-                    # 端口级跳过：即使 host 是 127.0.0.1/本机 IP/0.0.0.0 变化，也不拦 Web 端口
+                    # 端口级跳过：即使 host 是 127.0.0.1/本机 IP/DEFAULT_HOST 变化，也不拦 Web 端口
                     self.addon.set_internal_ports({web_port})
                     internal_host = web_host
                     self.addon.set_internal_targets({(internal_host, web_port)})
@@ -810,7 +811,7 @@ class ProxyServer:
         finally:
             self.stop()
 
-    def start_async(self, host: str = "0.0.0.0", port: int = 8001, web_port: int = 8002):
+    def start_async(self, port: int = 8001, web_port: int = 8002):
         """异步启动代理服务器（非阻塞）"""
         import subprocess
         import sys
@@ -818,7 +819,7 @@ class ProxyServer:
 
         # 构建启动命令
         cmd = [sys.executable, "-m", "uproxier.cli", "start",
-               "--host", host, "--port", str(port),
+               "--port", str(port),
                "--web-port", str(web_port), "--config", self.config_path, "--silent"]
 
         if self.save_path:
@@ -865,8 +866,8 @@ class ProxyServer:
 
             if not self.silent:
                 logger.info(f"服务器已在后台启动 (PID: {process.pid})")
-                logger.info(f"代理地址: {host}:{port}")
-                logger.info(f"Web 界面: http://{host}:{web_port}")
+                logger.info(f"代理地址: {DEFAULT_HOST}:{port}")
+                logger.info(f"Web 界面: http://{DEFAULT_HOST}:{web_port}")
 
             return process
 
@@ -900,9 +901,9 @@ class ProxyServer:
             logger.info("代理服务器已停止")
 
     def _prefer_lan_host(self, bind_host: str) -> str:
-        """当绑定 0.0.0.0/:: 时优先返回局域网 IP，否则返回原 host。失败回退 127.0.0.1。"""
+        """当绑定 DEFAULT_HOST/:: 时优先返回局域网 IP，否则返回原 host。失败回退 127.0.0.1。"""
         try:
-            if bind_host in ("0.0.0.0", "::"):
+            if bind_host in (DEFAULT_HOST, "::"):
                 import socket
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
@@ -927,7 +928,6 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="代理服务器")
-    parser.add_argument("--host", default="0.0.0.0", help="代理服务器监听地址")
     parser.add_argument("--port", type=int, default=8080, help="代理服务器端口")
     parser.add_argument("--web-port", type=int, default=8081, help="Web 界面端口")
     parser.add_argument("--config", default="config.yaml", help="配置文件路径")
@@ -943,4 +943,4 @@ if __name__ == "__main__":
 
     # 启动代理服务器
     proxy = ProxyServer(args.config)
-    proxy.start(args.host, args.port, args.web_port)
+    proxy.start(args.port, args.web_port)

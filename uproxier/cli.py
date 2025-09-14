@@ -108,8 +108,7 @@ def cli(verbose: bool, config: str):
 
 
 @cli.command()
-@click.option('--host', default='0.0.0.0', help='代理服务器监听地址')
-@click.option('--port', default=8001, help='代理服务器端口')
+@click.option('--port', default=8001, help='代理服务端口')
 @click.option('--web-port', default=8002, help='Web 界面端口')
 @click.option('--config', default='config.yaml', help='配置文件路径')
 @click.option('--save', 'save_path', default=None, help='保存请求数据到文件（jsonl）')
@@ -117,7 +116,7 @@ def cli(verbose: bool, config: str):
 @click.option('--enable-https/--disable-https', 'https_flag', default=None, help='启用/禁用 HTTPS 解密（覆盖配置）')
 @click.option('--silent', '-s', is_flag=True, help='静默模式，不输出任何信息')
 @click.option('--daemon', '-d', is_flag=True, help='后台模式启动')
-def start(host: str, port: int, web_port: int, config: str, save_path: Optional[str], save_format: str,
+def start(port: int, web_port: int, config: str, save_path: Optional[str], save_format: str,
           https_flag: Optional[bool], silent: bool, daemon: bool):
     """启动代理服务器"""
     # 在静默模式下设置日志级别
@@ -135,17 +134,17 @@ def start(host: str, port: int, web_port: int, config: str, save_path: Optional[
         os.environ['MITMPROXY_TERMLOG_VERBOSITY'] = 'error'
         os.environ['FLASK_DEBUG'] = '0'
 
-    # 计算展示用 Host
+    # 计算展示用 Host（固定监听 0.0.0.0，但显示实际的局域网 IP）
+    host = '0.0.0.0'  # 固定监听所有网络接口
     display_host = host
-    if host in ('0.0.0.0', '::'):
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            display_host = s.getsockname()[0]
-            s.close()
-        except Exception:
-            display_host = '0.0.0.0'
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        display_host = s.getsockname()[0]
+        s.close()
+    except Exception:
+        display_host = '0.0.0.0'
 
     if not silent:
         # 准备证书信息的文本行
@@ -222,7 +221,7 @@ def start(host: str, port: int, web_port: int, config: str, save_path: Optional[
 
     if daemon:
         # 后台模式启动，构建启动命令
-        cmd = [sys.executable, '-m', 'uproxier.cli', 'start', '--host', host, '--port', str(port),
+        cmd = [sys.executable, '-m', 'uproxier.cli', 'start', '--port', str(port),
                '--web-port', str(web_port), '--config', config, '--silent']
 
         if save_path:
@@ -310,7 +309,7 @@ def start(host: str, port: int, web_port: int, config: str, save_path: Optional[
         try:
             proxy = ProxyServer(config, save_path=save_path, save_format=save_format, silent=silent,
                                 enable_https=https_flag)
-            proxy.start(host, port, web_port)
+            proxy.start(port, web_port)
         except KeyboardInterrupt:
             if not silent:
                 console.print("\n[yellow]用户中断，正在停止服务器...[/yellow]")
@@ -487,7 +486,7 @@ def version():
 def examples(list_examples, example_name, copy_example, readme):
     """管理规则示例"""
     try:
-        from uproxier.examples import list_examples as get_examples, get_example_content, get_readme_content
+        from .examples import list_examples as get_examples, get_example_content, get_readme_content
 
         if readme:
             # 显示 README 内容
