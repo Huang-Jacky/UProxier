@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 class Rule:
     """规则基类"""
 
-    def __init__(self, rule_config: Dict[str, Any]):
+    def __init__(self, rule_config: Dict[str, Any], config_dir: Optional[str] = None):
         self.name = rule_config.get('name', 'unnamed')
         self.enabled = rule_config.get('enabled', True)
         self.priority = rule_config.get('priority', 0)
+        self.config_dir = config_dir
         match_cfg = rule_config.get('match', {})
         conds: Dict[str, Any] = {}
         if 'host' in match_cfg:
@@ -406,7 +407,12 @@ class Rule:
                     try:
                         p = Path(mock['file']).expanduser()
                         if not p.is_absolute():
-                            p = Path.cwd() / p
+                            # 相对于配置文件目录
+                            if self.config_dir:
+                                p = (Path(self.config_dir) / p).resolve()
+                            else:
+                                # 回退到当前工作目录（向后兼容）
+                                p = (Path.cwd() / p).resolve()
                         data = p.read_bytes()
                         response.content = data
                     except Exception as e:
@@ -533,9 +539,10 @@ class RulesEngine:
                 config = yaml.safe_load(f)
 
             self.rules = []
+            config_dir = str(config_path.parent)
             for idx, rule_config in enumerate(config.get('rules', [])):
                 self._validate_rule_config(rule_config, idx)
-                rule = Rule(rule_config)
+                rule = Rule(rule_config, config_dir)
                 self.rules.append(rule)
 
             # 按优先级排序
