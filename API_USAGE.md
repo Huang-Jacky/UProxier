@@ -13,7 +13,7 @@ UProxier 提供了两种启动方式：
 ```python
 from uproxier.proxy_server import ProxyServer
 
-# 创建代理服务器实例
+# 创建代理服务器实例（配置文件路径可选，默认使用 ~/.uproxier/config.yaml）
 proxy = ProxyServer("config.yaml")
 
 # 阻塞启动
@@ -28,7 +28,7 @@ proxy.start("0.0.0.0", 8001, 8002)
 from uproxier.proxy_server import ProxyServer
 import time
 
-# 创建代理服务器实例
+# 创建代理服务器实例（配置文件路径可选，默认使用 ~/.uproxier/config.yaml）
 proxy = ProxyServer("config.yaml", silent=True)
 
 # 异步启动
@@ -49,7 +49,7 @@ proxy.stop()
 ```python
 from uproxier.proxy_server import ProxyServer
 
-# 创建代理服务器实例
+# 创建代理服务器实例（配置文件路径可选，默认使用 ~/.uproxier/config.yaml）
 proxy = ProxyServer("config.yaml", silent=True)
 
 # 异步启动（保存进程对象）
@@ -75,7 +75,7 @@ import time
 import requests
 
 def test_proxy():
-    # 创建代理服务器实例
+    # 创建代理服务器实例（配置文件路径可选，默认使用 ~/.uproxier/config.yaml）
     proxy = ProxyServer("config.yaml", silent=True)
     
     try:
@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
 ```python
 ProxyServer(
-    config_path="config.yaml",    # 配置文件路径
+    config_path="config.yaml",    # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
     save_path=None,               # 流量保存路径
     save_format='jsonl',          # 保存格式
     silent=False,                 # 是否静默模式
@@ -146,7 +146,32 @@ process = proxy.start_async(
 3. **错误处理**：建议使用 try-except 块包装启动和停止逻辑
 4. **资源清理**：确保在 finally 块中调用 `proxy.stop()` 清理资源
 5. **端口冲突**：确保使用的端口没有被其他进程占用
+6. **配置文件**：如果不指定 `config_path`，将使用默认配置文件 `~/.uproxier/config.yaml`
+7. **证书管理**：首次启动会自动生成证书到 `~/.uproxier/certificates/` 目录
+8. **抓包文件**：如果指定 `save_path`，每次启动都会覆盖该文件（不是追加）
 
+
+## 配置继承示例
+
+UProxier 支持配置继承，可以在 API 中使用：
+
+```python
+from uproxier.proxy_server import ProxyServer
+
+# 使用继承配置的配置文件
+proxy = ProxyServer("main_config.yaml", silent=True)
+
+# main_config.yaml 可以继承 base_config.yaml
+# extends: "./base_config.yaml"
+# rules:
+#   - name: "扩展规则"
+#     # ... 其他配置
+```
+
+**配置继承特点**：
+- 支持 `extends` 字段实现配置继承
+- 相对路径基于配置文件位置解析
+- 支持多重继承和路径合并
 
 ## 故障排除
 
@@ -154,3 +179,5 @@ process = proxy.start_async(
 2. **权限问题**：确保有权限绑定指定端口
 3. **配置文件错误**：检查 `config.yaml` 文件格式
 4. **进程启动失败**：检查错误日志，通常是配置或权限问题
+5. **证书问题**：确保证书已正确安装到系统
+6. **路径解析错误**：检查配置文件中的相对路径是否正确

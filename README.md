@@ -10,11 +10,12 @@
     - mock_response（支持本地文件 file）/ modify_headers / modify_content / redirect
     - modify_response_headers / modify_response_content / modify_status
     - delay_response（真实延迟发送）/ conditional_response（条件分支）
-- 💾 **持久化**: 可将抓到的请求以 JSONL 持久化（--save）
-- 🌐 **Web 界面**: 实时流量、点击行查看详情、搜索、清空
+    - 配置继承（extends）支持，相对路径自动解析
+- 💾 **持久化**: 可将抓到的请求以 JSONL 持久化（--save，覆盖模式）
+- 🌐 **Web 界面**: 实时流量、点击行查看详情、搜索、清空，完全离线化
 - 🎯 **CLI 工具**: start/init/cert/version/examples & 静默模式（--silent）
 - 📊 **抓包控制**: 流媒体/大文件开关、阈值与二进制保存控制（通过 config.yaml 配置）
-- 🔧 **配置管理**: YAML 配置 + CLI 覆盖（HTTPS 开关）
+- 🔧 **配置管理**: 统一配置目录（~/.uproxier/），YAML 配置 + CLI 覆盖
 
 ## 安装
 
@@ -47,7 +48,7 @@ pip install -r requirements.txt
 pip install uproxier
 ```
 
-2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/` CA 证书；启动面板将显示证书路径与有效期）
+2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/certificates/` CA 证书；启动面板将显示证书路径与有效期）
 
 ```bash
 uproxier start
@@ -70,7 +71,7 @@ cd UProxier
 pip install -r requirements.txt
 ```
 
-2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/` CA 证书；启动面板将显示证书路径与有效期）
+2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/certificates/` CA 证书；启动面板将显示证书路径与有效期）
 
 ```bash
 python3 cli.py start
@@ -161,10 +162,9 @@ python3 cli.py --version          # 显示版本信息
 ```bash
 # 从 PyPI 安装后使用
 uproxier start \
-  --host 0.0.0.0 \                # 代理服务器监听地址
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
-  --config <path> \               # 配置文件路径
+  --config <path> \               # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
   --save ./logs/traffic.jsonl \   # 保存请求数据到文件
   --save-format jsonl \           # 保存格式
   --enable-https \                # 启用 HTTPS 解密（覆盖配置）
@@ -174,10 +174,9 @@ uproxier start \
 
 # 从源码运行
 python3 cli.py start \
-  --host 0.0.0.0 \                # 代理服务器监听地址
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
-  --config <path> \               # 配置文件路径
+  --config <path> \               # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
   --save ./logs/traffic.jsonl \   # 保存请求数据到文件
   --save-format jsonl \           # 保存格式
   --enable-https \                # 启用 HTTPS 解密（覆盖配置）
@@ -337,7 +336,44 @@ params: <参数，随行为不同而异>
 
 ### 规则配置
 
-项目支持在 `config.yaml` 中定义规则，包含请求/响应修改、Mock、延迟等。当前版本使用“通用规则模型”并已弃用旧键（conditions/actions）。
+项目支持在 `config.yaml` 中定义规则，包含请求/响应修改、Mock、延迟等。当前版本使用"通用规则模型"并已弃用旧键（conditions/actions）。
+
+#### 配置继承
+
+支持使用 `extends` 字段实现配置继承，减少重复配置：
+
+```yaml
+# base_config.yaml
+rules:
+  - name: "基础规则"
+    enabled: true
+    priority: 100
+    match:
+      host: "^api\\.example\\.com$"
+    response_pipeline:
+      - action: set_header
+        params:
+          X-Custom-Header: "base-value"
+
+# main_config.yaml
+extends: "./base_config.yaml"  # 继承基础配置
+rules:
+  - name: "扩展规则"
+    enabled: true
+    priority: 200
+    match:
+      host: "^api\\.example\\.com$"
+      path: "^/v1/"
+    response_pipeline:
+      - action: mock_response
+        params:
+          file: "../../MockData/response.json"  # 相对路径基于配置文件位置解析
+```
+
+**路径解析规则**：
+- 配置文件中的相对路径（如 `file: "../../MockData/response.json"`）相对于配置文件本身解析
+- 支持 `../` 等相对路径符号
+- 继承配置的路径也会正确解析
 
 #### 通用规则模型
 
@@ -626,42 +662,44 @@ python3 cli.py cert
 
 ```
 # 证书文件存储在用户目录
-~/.uproxier/            # 用户证书目录
-├── mitmproxy-ca-cert.pem    # PEM 格式证书（mitmproxy 使用 + 用户安装）
-├── mitmproxy-ca-key.pem     # 私钥文件（mitmproxy 使用，⚠️ 不要安装）
-├── mitmproxy-ca.pem         # 合并证书+私钥（mitmproxy 使用，⚠️ 不要安装）
-└── mitmproxy-ca-cert.der    # DER 格式证书（用户安装）
+~/.uproxier/                    # 用户配置目录
+├── config.yaml                 # 默认配置文件
+└── certificates/               # 证书目录
+    ├── mitmproxy-ca-cert.pem   # PEM 格式证书（mitmproxy 使用 + 用户安装）
+    ├── mitmproxy-ca-key.pem    # 私钥文件（mitmproxy 使用，⚠️ 不要安装）
+    ├── mitmproxy-ca.pem        # 合并证书+私钥（mitmproxy 使用，⚠️ 不要安装）
+    └── mitmproxy-ca-cert.der   # DER 格式证书（用户安装）
 ```
 
 #### macOS
 
 ```bash
 # 推荐使用 PEM 格式（双击证书文件或使用命令行）
-security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain ~/.uproxier/mitmproxy-ca-cert.pem
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain ~/.uproxier/certificates/mitmproxy-ca-cert.pem
 
 # 或者使用 DER 格式
-security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain ~/.uproxier/mitmproxy-ca-cert.der
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain ~/.uproxier/certificates/mitmproxy-ca-cert.der
 ```
 
 #### Windows
 
 ```bash
 # 推荐使用 DER 格式
-certutil -addstore -f ROOT ~/.uproxier/mitmproxy-ca-cert.der
+certutil -addstore -f ROOT ~/.uproxier/certificates/mitmproxy-ca-cert.der
 
 # 或者使用 PEM 格式
-certutil -addstore -f ROOT ~/.uproxier/mitmproxy-ca-cert.pem
+certutil -addstore -f ROOT ~/.uproxier/certificates/mitmproxy-ca-cert.pem
 ```
 
 #### Linux
 
 ```bash
 # 推荐使用 PEM 格式
-sudo cp ~/.uproxier/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt
+sudo cp ~/.uproxier/certificates/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt
 sudo update-ca-certificates
 
 # 或者使用 DER 格式
-sudo cp ~/.uproxier/mitmproxy-ca-cert.der /usr/local/share/ca-certificates/mitmproxy-ca.crt
+sudo cp ~/.uproxier/certificates/mitmproxy-ca-cert.der /usr/local/share/ca-certificates/mitmproxy-ca.crt
 sudo update-ca-certificates
 ```
 

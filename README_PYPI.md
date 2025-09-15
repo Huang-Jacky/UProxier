@@ -211,7 +211,7 @@ uproxier cert
 
 ⚠️ **重要提醒**：只安装证书文件，不要安装包含私钥的文件！
 
-**证书文件位置**：`~/.uproxier/`
+**证书文件位置**：`~/.uproxier/certificates/`
 
 - `mitmproxy-ca-cert.pem` - PEM 格式证书（推荐）
 - `mitmproxy-ca-cert.der` - DER 格式证书
@@ -220,13 +220,13 @@ uproxier cert
 
 ```bash
 # macOS
-security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain ~/.uproxier/mitmproxy-ca-cert.pem
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain ~/.uproxier/certificates/mitmproxy-ca-cert.pem
 
 # Windows
-certutil -addstore -f ROOT ~/.uproxier/mitmproxy-ca-cert.der
+certutil -addstore -f ROOT ~/.uproxier/certificates/mitmproxy-ca-cert.der
 
 # Linux
-sudo cp ~/.uproxier/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt
+sudo cp ~/.uproxier/certificates/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt
 sudo update-ca-certificates
 ```
 
