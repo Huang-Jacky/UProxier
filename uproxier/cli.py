@@ -218,7 +218,10 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
     if daemon:
         # 后台模式启动，构建启动命令
         cmd = [sys.executable, '-m', 'uproxier.cli', 'start', '--port', str(port),
-               '--web-port', str(web_port), '--config', config, '--silent']
+               '--web-port', str(web_port), '--silent']
+        
+        if config is not None:
+            cmd.extend(['--config', config])
 
         if save_path:
             cmd.extend(['--save', save_path, '--save-format', save_format])
