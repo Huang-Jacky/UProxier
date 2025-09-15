@@ -3,6 +3,7 @@
 
 import json
 import logging
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -267,7 +268,7 @@ class Rule:
         return request if modified else None
 
     def apply_response_actions(self, response: http.Response) -> Optional[http.Response]:
-        """应用响应动作（仅通用 DSL 的 response_pipeline）"""
+        """应用响应动作"""
         modified = False
         for step in self.response_pipeline:
             action = step.get('action')
@@ -529,7 +530,7 @@ class RulesEngine:
         self.load_rules()
 
     def load_rules(self):
-        """从配置文件加载规则"""
+        """从配置文件加载规则，支持继承"""
         try:
             config_path = Path(self.config_path)
             if not config_path.exists():
@@ -538,6 +539,9 @@ class RulesEngine:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
 
+            if 'extends' in config:
+                config = self._resolve_extends(config, config_path.parent)
+
             self.rules = []
             config_dir = str(config_path.parent)
             for idx, rule_config in enumerate(config.get('rules', [])):
@@ -545,7 +549,6 @@ class RulesEngine:
                 rule = Rule(rule_config, config_dir)
                 self.rules.append(rule)
 
-            # 按优先级排序
             self.rules.sort(key=lambda x: x.priority, reverse=True)
 
             # 构建索引：host_key -> [Rule]，path_prefix -> [Rule]，以及通用列表
@@ -597,6 +600,86 @@ class RulesEngine:
         if not self.silent:
             logger.info(f"创建默认配置文件: {self.config_path}")
 
+    def _resolve_extends(self, config: Dict, current_dir: Path) -> Dict:
+        """解析配置文件继承"""
+        if 'extends' not in config:
+            return config
+
+        extends_file = config['extends']
+
+        if not Path(extends_file).is_absolute():
+            extends_file = current_dir / extends_file
+
+        extends_file = Path(extends_file).resolve()
+
+        if not extends_file.exists():
+            error_msg = (
+                f"\n继承配置文件不存在\n"
+                f"当前配置文件: {current_dir}\n"
+                f"尝试继承: {config['extends']}\n"
+                f"解析后路径: {extends_file}\n"
+                f"\n解决建议:\n"
+                f"  1. 检查继承文件路径是否正确\n"
+                f"  2. 确认相对路径层级 (../ 数量)\n"
+                f"  3. 验证文件是否真实存在\n"
+                f"  4. 使用绝对路径避免路径问题"
+            )
+            raise FileNotFoundError(error_msg)
+
+        with open(extends_file, 'r', encoding='utf-8') as f:
+            base_config = yaml.safe_load(f)
+
+        base_config = self._resolve_extends(base_config, Path(extends_file).parent)
+
+        merged_config = self._merge_configs(base_config, config, Path(extends_file).parent, current_dir)
+
+        return merged_config
+
+    def _merge_configs(self, base: Dict, current: Dict, base_dir: Path, current_dir: Path) -> Dict:
+        """合并配置，当前配置优先，处理路径标准化"""
+        merged = base.copy()
+
+        if 'rules' in merged:
+            for rule in merged['rules']:
+                if 'response_pipeline' in rule:
+                    for action in rule['response_pipeline']:
+                        if action.get('action') == 'mock_response' and 'file' in action.get('params', {}):
+                            file_path = action['params']['file']
+                            if not Path(file_path).is_absolute():
+                                # 将基础配置中的相对路径转换为相对于当前配置文件的路径
+                                base_file_path = base_dir / file_path
+                                relative_path = os.path.relpath(base_file_path, current_dir)
+                                action['params']['file'] = relative_path
+
+        if 'capture' in current:
+            if 'capture' in merged:
+                merged['capture'].update(current['capture'])
+            else:
+                merged['capture'] = current['capture']
+
+        if 'rules' in current:
+            if 'rules' not in merged:
+                merged['rules'] = []
+            merged['rules'].extend(current['rules'])
+
+        merged.pop('extends', None)
+
+        return merged
+
+    def _export_match(self, conds: Dict[str, Any]) -> Dict[str, Any]:
+        """将内部 match_config(host_pattern/url_pattern/method) 回写为 DSL 的 match(host/path/method)"""
+        out: Dict[str, Any] = {}
+        hp = conds.get('host_pattern')
+        up = conds.get('url_pattern')
+        if isinstance(hp, str):
+            out['host'] = hp
+        if isinstance(up, str):
+            out['path'] = up
+        m = conds.get('method')
+        if isinstance(m, str):
+            out['method'] = m
+        return out
+
     def reload_rules(self):
         """重新加载规则"""
         self.load_rules()
@@ -624,21 +707,6 @@ class RulesEngine:
     def save_rules(self):
         """保存规则到配置文件"""
         try:
-            def _export_match(conds: Dict[str, Any]) -> Dict[str, Any]:
-                # 将内部 match_config(host_pattern/url_pattern/method) 回写为 DSL 的 match(host/path/method)
-                out: Dict[str, Any] = {}
-                hp = conds.get('host_pattern')
-                up = conds.get('url_pattern')
-                if isinstance(hp, str):
-                    out['host'] = hp
-                if isinstance(up, str):
-                    # 以 ^/ 开头视为 path 正则，否则也回写为 path（保持 README 一致）
-                    out['path'] = up
-                m = conds.get('method')
-                if isinstance(m, str):
-                    out['method'] = m
-                return out
-
             config = {
                 'rules': [
                     {
@@ -646,7 +714,7 @@ class RulesEngine:
                         'enabled': rule.enabled,
                         'priority': rule.priority,
                         'stop_after_match': getattr(rule, 'stop_after_match', False),
-                        'match': _export_match(getattr(rule, 'match_config', {}) or {}),
+                        'match': self._export_match(getattr(rule, 'match_config', {}) or {}),
                         'request_pipeline': getattr(rule, 'request_pipeline', []),
                         'response_pipeline': getattr(rule, 'response_pipeline', [])
                     }
@@ -776,7 +844,7 @@ class RulesEngine:
                 'enabled': rule.enabled,
                 'priority': rule.priority,
                 'stop_after_match': getattr(rule, 'stop_after_match', False),
-                'match': getattr(rule, 'match_config', {}),
+                'match': self._export_match(getattr(rule, 'match_config', {}) or {}),
                 'request_pipeline': getattr(rule, 'request_pipeline', []),
                 'response_pipeline': getattr(rule, 'response_pipeline', []),
             })
