@@ -40,3 +40,6 @@ htmlcov/
 .coverage
 .coverage.*
 coverage.xml
+
+# Local changelog
+CHANGELOG.md
