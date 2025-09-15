@@ -46,6 +46,37 @@ class WebInterface:
     def register_routes(self):
         """注册 Flask 路由"""
 
+        # 静态文件路由 - 提供包内的静态资源
+        @self.app.route('/assets/<path:filename>')
+        def static_files(filename):
+            """提供包内静态文件服务"""
+            from importlib.resources import files as _files
+            from flask import Response
+            
+            try:
+                # 构建文件路径
+                file_path = _files('uproxier') / 'templates' / 'static' / filename
+                
+                # 检查文件是否存在
+                if not file_path.exists():
+                    return "File not found", 404
+                
+                # 读取文件内容
+                content = file_path.read_bytes()
+                
+                # 根据文件扩展名设置 MIME 类型
+                if filename.endswith('.css'):
+                    mimetype = 'text/css'
+                elif filename.endswith('.js'):
+                    mimetype = 'application/javascript'
+                else:
+                    mimetype = 'application/octet-stream'
+                
+                return Response(content, mimetype=mimetype)
+                
+            except Exception as e:
+                return f"Error loading file: {e}", 500
+
         @self.app.route('/')
         def index():
             return render_template('index.html')

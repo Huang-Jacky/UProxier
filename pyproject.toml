@@ -40,9 +40,9 @@ dependencies = [
 uproxier = "uproxier.cli:cli"
 
 [tool.setuptools]
-packages = ["uproxier", "uproxier.examples", "uproxier.templates"]
+packages = ["uproxier", "uproxier.examples", "uproxier.templates", "uproxier.templates.static", "uproxier.templates.static.css", "uproxier.templates.static.js"]
 
 [tool.setuptools.package-data]
-uproxier = ["templates/*.html", "examples/*.yaml", "examples/*.md"]
+uproxier = ["templates/*.html", "templates/static/css/*.css", "templates/static/js/*.js", "examples/*.yaml", "examples/*.md"]
 
 
