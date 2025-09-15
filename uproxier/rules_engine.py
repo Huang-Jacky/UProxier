@@ -579,6 +579,16 @@ class RulesEngine:
     def create_default_config(self):
         """创建默认配置文件"""
         default_config = {
+            'capture': {
+                'include': {
+                    'hosts': ['.*']  # 默认捕获所有请求
+                },
+                'enable_streaming': False,
+                'enable_large_files': False,
+                'large_file_threshold': 1048576,
+                'save_binary_content': False,
+                'enable_https': True
+            },
             'rules': [
                 {
                     'name': '示例规则 - 修改 User-Agent',
