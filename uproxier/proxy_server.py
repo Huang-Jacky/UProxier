@@ -45,6 +45,9 @@ class ProxyAddon:
                 p = p / 'traffic.jsonl'
             p.parent.mkdir(parents=True, exist_ok=True)
             self.save_path = str(p)
+            # 每次启动时清空文件，确保覆盖而不是追加
+            if p.exists():
+                p.unlink()
 
         # 读取抓包配置
         self.capture_config = self._load_capture_config()
