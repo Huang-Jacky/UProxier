@@ -523,8 +523,8 @@ class Rule:
 class RulesEngine:
     """规则引擎"""
 
-    def __init__(self, config_path: str = "config.yaml", silent: bool = False):
-        self.config_path = config_path
+    def __init__(self, config_path: str = None, silent: bool = False):
+        self.config_path = config_path or default_config_path()
         self.silent = silent
         self.rules: List[Rule] = []
         self.load_rules()
@@ -707,22 +707,30 @@ class RulesEngine:
     def save_rules(self):
         """保存规则到配置文件"""
         try:
-            config = {
-                'rules': [
-                    {
-                        'name': rule.name,
-                        'enabled': rule.enabled,
-                        'priority': rule.priority,
-                        'stop_after_match': getattr(rule, 'stop_after_match', False),
-                        'match': self._export_match(getattr(rule, 'match_config', {}) or {}),
-                        'request_pipeline': getattr(rule, 'request_pipeline', []),
-                        'response_pipeline': getattr(rule, 'response_pipeline', [])
-                    }
-                    for rule in self.rules
-                ]
-            }
-
+            # 读取现有配置，保留 capture 和其他配置
+            existing_config = {}
             config_path = Path(self.config_path)
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        existing_config = yaml.safe_load(f) or {}
+                except Exception:
+                    pass
+
+            config = existing_config.copy()
+            config['rules'] = [
+                {
+                    'name': rule.name,
+                    'enabled': rule.enabled,
+                    'priority': rule.priority,
+                    'stop_after_match': getattr(rule, 'stop_after_match', False),
+                    'match': self._export_match(getattr(rule, 'match_config', {}) or {}),
+                    'request_pipeline': getattr(rule, 'request_pipeline', []),
+                    'response_pipeline': getattr(rule, 'response_pipeline', [])
+                }
+                for rule in self.rules
+            ]
+
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 
@@ -849,3 +857,17 @@ class RulesEngine:
                 'response_pipeline': getattr(rule, 'response_pipeline', []),
             })
         return result
+
+
+def get_uproxier_dir() -> Path:
+    """获取 UProxier 主目录"""
+    home_dir = Path.home()
+    uproxier_dir = home_dir / '.uproxier'
+    uproxier_dir.mkdir(exist_ok=True)
+    return uproxier_dir
+
+
+def default_config_path() -> str:
+    """获取默认配置文件路径，保存在用户主目录"""
+    uproxier_dir = get_uproxier_dir()
+    return str(uproxier_dir / 'config.yaml')

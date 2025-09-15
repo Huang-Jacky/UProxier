@@ -20,7 +20,7 @@ from rich.table import Table
 
 from .certificate_manager import CertificateManager
 from .proxy_server import ProxyServer
-from .rules_engine import RulesEngine
+from .rules_engine import RulesEngine, default_config_path
 from .version import get_version, get_author
 
 console = Console()
@@ -97,9 +97,8 @@ def is_service_ready(host, port, timeout=1):
 
 @click.group()
 @click.option('--verbose', '-v', is_flag=True, help='详细输出')
-@click.option('--config', default='config.yaml', help='配置文件路径')
 @click.version_option(version=get_version(), prog_name='UProxier')
-def cli(verbose: bool, config: str):
+def cli(verbose: bool):
     """代理服务器命令行工具"""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -110,7 +109,7 @@ def cli(verbose: bool, config: str):
 @cli.command()
 @click.option('--port', default=8001, help='代理服务端口')
 @click.option('--web-port', default=8002, help='Web 界面端口')
-@click.option('--config', default='config.yaml', help='配置文件路径')
+@click.option('--config', default=None, help='配置文件路径')
 @click.option('--save', 'save_path', default=None, help='保存请求数据到文件（jsonl）')
 @click.option('--save-format', type=click.Choice(['jsonl']), default='jsonl', help='保存格式')
 @click.option('--enable-https/--disable-https', 'https_flag', default=None, help='启用/禁用 HTTPS 解密（覆盖配置）')
@@ -119,7 +118,6 @@ def cli(verbose: bool, config: str):
 def start(port: int, web_port: int, config: str, save_path: Optional[str], save_format: str,
           https_flag: Optional[bool], silent: bool, daemon: bool):
     """启动代理服务器"""
-    # 在静默模式下设置日志级别
     if silent:
         logging.basicConfig(level=logging.ERROR)
         # 抑制所有第三方库的日志
@@ -134,7 +132,6 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
         os.environ['MITMPROXY_TERMLOG_VERBOSITY'] = 'error'
         os.environ['FLASK_DEBUG'] = '0'
 
-    # 计算展示用 Host（固定监听 0.0.0.0，但显示实际的局域网 IP）
     host = '0.0.0.0'  # 固定监听所有网络接口
     display_host = host
     try:
@@ -211,7 +208,6 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
             panel_text += "\n" + "\n".join(cert_lines)
         console.print(Panel.fit(panel_text, title="🚀 UProxier"))
 
-    # 检查是否已有服务器在运行
     existing_pid = load_pid()
     if existing_pid and is_process_running(existing_pid):
         if not silent:
@@ -305,9 +301,9 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
                 console.print(f"[red]启动失败: {e}[/red]")
             sys.exit(1)
     else:
-        # 前台模式启动
         try:
-            proxy = ProxyServer(config, save_path=save_path, save_format=save_format, silent=silent,
+            config_path = config or default_config_path()
+            proxy = ProxyServer(config_path, save_path=save_path, save_format=save_format, silent=silent,
                                 enable_https=https_flag)
             proxy.start(port, web_port)
         except KeyboardInterrupt:
@@ -320,7 +316,7 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
 
 
 @cli.command()
-@click.option('--config', default='config.yaml', help='配置文件路径')
+@click.option('--config', default=None, help='配置文件路径')
 def init(config: str):
     """初始化代理服务器配置"""
     console.print(Panel.fit(
@@ -330,16 +326,14 @@ def init(config: str):
     ))
 
     try:
-        # 初始化证书管理器
         cert_manager = CertificateManager()
         cert_manager.ensure_certificates()
 
-        # 初始化规则引擎
-        rules_engine = RulesEngine(config)
+        config_path = config or default_config_path()
+        rules_engine = RulesEngine(config_path)
 
         console.print("[green]✓ 配置初始化完成[/green]")
 
-        # 显示证书安装说明
         instructions = cert_manager.get_installation_instructions()
         console.print(Panel(instructions, title="📋 证书安装说明"))
 
@@ -357,7 +351,6 @@ def cert():
         console.clear()
         console.print(Panel.fit("[bold blue]证书管理[/bold blue]", title="🔐 证书管理"))
 
-        # 显示证书信息
         cert_info = cert_manager.get_certificate_info()
         if 'error' not in cert_info:
             console.print(f"[green]证书路径: {cert_info['cert_path']}[/green]")
@@ -489,7 +482,6 @@ def examples(list_examples, example_name, copy_example, readme):
         from .examples import list_examples as get_examples, get_example_content, get_readme_content
 
         if readme:
-            # 显示 README 内容
             readme_content = get_readme_content()
             if readme_content:
                 console.print(Panel(readme_content, title="📚 规则示例说明"))
@@ -498,7 +490,6 @@ def examples(list_examples, example_name, copy_example, readme):
             return
 
         if list_examples:
-            # 列出所有示例
             _examples = get_examples()
             if not _examples:
                 console.print("[yellow]未找到任何示例文件[/yellow]")
@@ -515,7 +506,6 @@ def examples(list_examples, example_name, copy_example, readme):
             return
 
         if example_name:
-            # 显示指定示例内容
             content = get_example_content(example_name)
             if content:
                 console.print(Panel(content, title=f"📄 {example_name}"))
@@ -524,7 +514,6 @@ def examples(list_examples, example_name, copy_example, readme):
             return
 
         if copy_example:
-            # 复制示例到当前目录
             content = get_example_content(copy_example)
             if not content:
                 console.print(f"[red]未找到示例文件: {copy_example}[/red]")
@@ -539,7 +528,6 @@ def examples(list_examples, example_name, copy_example, readme):
             console.print(f"[green]✓ 示例已复制到: {target_path.absolute()}[/green]")
             return
 
-        # 默认显示帮助
         console.print(Panel.fit(
             "[bold blue]规则示例管理[/bold blue]\n\n"
             "可用命令:\n"

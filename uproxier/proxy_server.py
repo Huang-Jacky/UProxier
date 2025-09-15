@@ -15,7 +15,7 @@ from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
 
 from .certificate_manager import CertificateManager
-from .rules_engine import RulesEngine
+from .rules_engine import RulesEngine, default_config_path
 from .web_interface import WebInterface
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class ProxyAddon:
         self.save_path = None
         self.internal_targets = set()
         self.internal_web_ports = set()
-        self.config_path = config_path or "config.yaml"
+        self.config_path = config_path or default_config_path()
         if save_path:
             p = pathlib.Path(save_path)
             if p.is_dir():
@@ -116,13 +116,18 @@ class ProxyAddon:
         self.internal_web_ports = ports or set()
 
     def _load_capture_config(self) -> Dict[str, Any]:
-        """加载抓包配置"""
+        """加载抓包配置，支持继承"""
         try:
             import yaml
             config_path = Path(self.config_path)
             if config_path.exists():
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config = yaml.safe_load(f)
+
+                # 处理配置文件继承
+                if 'extends' in config:
+                    config = self._resolve_extends_for_capture(config, config_path.parent)
+
                 return config.get('capture', {})
         except Exception as e:
             logger.warning(f"加载抓包配置失败: {e}")
@@ -135,6 +140,41 @@ class ProxyAddon:
             'save_binary_content': False,
             'binary_preview_max_bytes': 5242880  # 5MB 预览上限（仅用于预览，不做持久化）
         }
+
+    def _resolve_extends_for_capture(self, config: Dict, current_dir: Path) -> Dict:
+        """解析配置文件继承（仅用于 capture 配置）"""
+        if 'extends' not in config:
+            return config
+
+        extends_file = config['extends']
+
+        if not Path(extends_file).is_absolute():
+            extends_file = current_dir / extends_file
+
+        extends_file = Path(extends_file).resolve()
+
+        if not extends_file.exists():
+            return config
+
+        try:
+            import yaml
+            with open(extends_file, 'r', encoding='utf-8') as f:
+                base_config = yaml.safe_load(f)
+
+            # 递归解析基础配置的继承
+            base_config = self._resolve_extends_for_capture(base_config, Path(extends_file).parent)
+
+            # 合并 capture 配置
+            merged_config = base_config.copy()
+            if 'capture' in config:
+                if 'capture' in merged_config:
+                    merged_config['capture'].update(config['capture'])
+                else:
+                    merged_config['capture'] = config['capture']
+
+            return merged_config
+        except Exception:
+            return config
 
     def _compile_capture_filters(self) -> None:
         cfg = self.capture_config or {}
@@ -636,14 +676,14 @@ class ProxyAddon:
 class ProxyServer:
     """代理服务器主类"""
 
-    def __init__(self, config_path: str = "config.yaml", save_path: Optional[str] = None, save_format: str = 'jsonl',
+    def __init__(self, config_path: str = None, save_path: Optional[str] = None, save_format: str = 'jsonl',
                  silent: bool = False, enable_https: Optional[bool] = None):
-        self.config_path = config_path
+        self.config_path = config_path or default_config_path()
         self.save_path = save_path
         self.save_format = save_format
         self.silent = silent
         self.enable_https_override = enable_https
-        self.rules_engine = RulesEngine(config_path, silent=self.silent)
+        self.rules_engine = RulesEngine(self.config_path, silent=self.silent)
         self.cert_manager = CertificateManager(silent=self.silent)
         self.web_interface = WebInterface()
         self.addon = ProxyAddon(self.rules_engine, self.web_interface, save_path=save_path, save_format=save_format,
@@ -844,21 +884,21 @@ class ProxyServer:
                 cwd=os.getcwd()
             )
 
-            max_wait = 3.0 
+            max_wait = 3.0
             wait_interval = 0.1
             waited = 0.0
-            
+
             while waited < max_wait:
                 time.sleep(wait_interval)
                 waited += wait_interval
-                
+
                 # 检查进程是否还在运行
                 if process.poll() is not None:
                     # 进程已退出，获取错误信息
                     _, stderr = process.communicate()
                     error_msg = stderr.decode() if stderr else "无错误信息"
                     raise RuntimeError(f"后台进程启动失败: {error_msg}")
-                
+
                 # 如果进程还在运行且等待时间足够，可以退出
                 if waited >= 0.5:  # 至少等待 0.5 秒
                     break
@@ -933,7 +973,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="代理服务器")
     parser.add_argument("--port", type=int, default=8080, help="代理服务器端口")
     parser.add_argument("--web-port", type=int, default=8081, help="Web 界面端口")
-    parser.add_argument("--config", default="config.yaml", help="配置文件路径")
+    parser.add_argument("--config", default=None, help="配置文件路径")
     parser.add_argument("--log-level", default="INFO", help="日志级别")
 
     args = parser.parse_args()
@@ -945,5 +985,6 @@ if __name__ == "__main__":
     )
 
     # 启动代理服务器
-    proxy = ProxyServer(args.config)
+    config_path = args.config or default_config_path()
+    proxy = ProxyServer(config_path)
     proxy.start(args.port, args.web_port)

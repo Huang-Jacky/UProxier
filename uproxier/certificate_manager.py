@@ -14,8 +14,14 @@ logger = logging.getLogger(__name__)
 class CertificateManager:
     """证书管理器"""
 
-    def __init__(self, cert_dir: str = str(Path.home() / ".uproxier"), silent: bool = False):
-        self.cert_dir = Path(cert_dir).expanduser()
+    def __init__(self, cert_dir: str = None, silent: bool = False):
+        if cert_dir is None:
+            from .rules_engine import get_uproxier_dir
+            uproxier_dir = get_uproxier_dir()
+            self.cert_dir = uproxier_dir / "certificates"
+        else:
+            self.cert_dir = Path(cert_dir).expanduser()
+
         self.silent = silent
         self.ca_cert_path = self.cert_dir / "mitmproxy-ca-cert.pem"
         self.ca_key_path = self.cert_dir / "mitmproxy-ca-key.pem"
@@ -23,14 +29,18 @@ class CertificateManager:
         self.ca_cert_der_path = self.cert_dir / "mitmproxy-ca-cert.der"
 
     def ensure_certificates(self):
-        """确保证书存在，如果不存在则生成"""
+        """确保证书存在，如果不存在则生成或迁移"""
         try:
             self.cert_dir.mkdir(exist_ok=True)
 
             if not self.ca_cert_path.exists() or not self.ca_key_path.exists():
-                if not self.silent:
-                    logger.info("生成新的 CA 证书...")
-                self.generate_ca_certificate()
+                if self._migrate_from_old_location():
+                    if not self.silent:
+                        logger.info("证书已从旧位置迁移")
+                else:
+                    if not self.silent:
+                        logger.info("生成新的 CA 证书...")
+                    self.generate_ca_certificate()
 
             self.verify_certificate()
             try:
@@ -43,6 +53,58 @@ class CertificateManager:
             if not self.silent:
                 logger.error(f"证书管理失败: {e}")
             raise
+
+    def _migrate_from_old_location(self) -> bool:
+        """从旧位置迁移证书文件"""
+        try:
+            home_dir = Path.home()
+
+            old_locations = [
+                home_dir / '.uproxier',
+            ]
+
+            for old_dir in old_locations:
+                if not old_dir.exists():
+                    continue
+
+                old_cert_path = old_dir / 'mitmproxy-ca-cert.pem'
+                old_key_path = old_dir / 'mitmproxy-ca-key.pem'
+                old_der_path = old_dir / 'mitmproxy-ca-cert.der'
+                old_combined_path = old_dir / 'mitmproxy-ca.pem'
+
+                # 检查是否有证书文件
+                if old_cert_path.exists() and old_key_path.exists():
+                    if not self.silent:
+                        logger.info(f"发现旧证书文件，从 {old_dir} 迁移到 {self.cert_dir}")
+
+                    # 复制证书文件
+                    import shutil
+                    shutil.copy2(old_cert_path, self.ca_cert_path)
+                    shutil.copy2(old_key_path, self.ca_key_path)
+
+                    # 复制 OpenSSL 配置文件（如果存在）
+                    old_cnf_path = old_dir / 'openssl_uproxier_ca.cnf'
+                    if old_cnf_path.exists():
+                        shutil.copy2(old_cnf_path, self.cert_dir / 'openssl_uproxier_ca.cnf')
+
+                    try:
+                        self.verify_certificate()
+                        return True
+                    except Exception as e:
+                        if not self.silent:
+                            logger.warning(f"迁移的证书验证失败: {e}")
+                        for path in [self.ca_cert_path, self.ca_key_path, self.ca_cert_der_path,
+                                     self.ca_combined_pem_path]:
+                            if path.exists():
+                                path.unlink()
+                        continue
+
+            return False
+
+        except Exception as e:
+            if not self.silent:
+                logger.warning(f"证书迁移失败: {e}")
+            return False
 
     def generate_ca_certificate(self):
         """生成 CA 证书（优先使用 OpenSSL，避免 mitmproxy 内部 API 兼容性问题）"""

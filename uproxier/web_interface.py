@@ -368,9 +368,13 @@ class WebInterface:
             """下载 CA 证书，支持 pem(PEM) 与 cer(DER)。"""
             try:
                 fmt_l = fmt.lower()
-                cert_dir = Path.home() / '.uproxier'
+                from .rules_engine import get_uproxier_dir
+                uproxier_dir = get_uproxier_dir()
+                cert_dir = uproxier_dir / 'certificates'
+
                 if not cert_dir.exists():
-                    cert_dir = Path.home() / '.mitmproxy'
+                    cert_dir = Path.home() / '.uproxier'
+
                 if fmt_l == 'pem':
                     filename = 'mitmproxy-ca-cert.pem'
                     download_name = 'uproxier-ca.pem'
