@@ -17,6 +17,10 @@ from mitmproxy.tools.dump import DumpMaster
 from .certificate_manager import CertificateManager
 from .rules_engine import RulesEngine, default_config_path
 from .web_interface import WebInterface
+from .exceptions import (
+    ConfigInheritanceError, RuleExecutionError, ProxyStartupError,
+    WebInterfaceStartupError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -851,6 +855,7 @@ class ProxyServer:
         except Exception as e:
             if not self.silent:
                 logger.error(f"启动代理服务器失败: {e}")
+            raise ProxyStartupError(f"代理服务器启动失败: {e}", port=port, web_port=web_port)
         finally:
             self.stop()
 
@@ -897,7 +902,7 @@ class ProxyServer:
                     # 进程已退出，获取错误信息
                     _, stderr = process.communicate()
                     error_msg = stderr.decode() if stderr else "无错误信息"
-                    raise RuntimeError(f"后台进程启动失败: {error_msg}")
+                    raise ProxyStartupError(f"后台进程启动失败: {error_msg}", port=port, web_port=web_port)
 
                 # 如果进程还在运行且等待时间足够，可以退出
                 if waited >= 0.5:  # 至少等待 0.5 秒

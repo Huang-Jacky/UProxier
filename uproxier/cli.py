@@ -22,6 +22,7 @@ from .certificate_manager import CertificateManager
 from .proxy_server import ProxyServer
 from .rules_engine import RulesEngine, default_config_path
 from .version import get_version, get_author
+from .exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
 
 console = Console()
 
@@ -312,6 +313,23 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
         except KeyboardInterrupt:
             if not silent:
                 console.print("\n[yellow]用户中断，正在停止服务器...[/yellow]")
+        except (ConfigInheritanceError, RuleValidationError) as e:
+            if not silent:
+                console.print(f"[red]配置错误: {e}[/red]")
+                if hasattr(e, 'suggestions') and e.suggestions:
+                    console.print("[yellow]修复建议:[/yellow]")
+                    for suggestion in e.suggestions:
+                        console.print(f"  - {suggestion}")
+            sys.exit(1)
+        except ProxyStartupError as e:
+            if not silent:
+                console.print(f"[red]代理启动失败: {e}[/red]")
+                if hasattr(e, 'details') and e.details:
+                    if 'port' in e.details:
+                        console.print(f"[yellow]端口: {e.details['port']}[/yellow]")
+                    if 'web_port' in e.details:
+                        console.print(f"[yellow]Web端口: {e.details['web_port']}[/yellow]")
+            sys.exit(1)
         except Exception as e:
             if not silent:
                 console.print(f"[red]启动失败: {e}[/red]")

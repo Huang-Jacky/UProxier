@@ -553,6 +553,8 @@ class WebInterface:
             except Exception as e:
                 if not silent:
                     logger.error(f"Web 界面启动失败: {e}")
+                # 注意：这里不能直接抛出异常，因为是在线程中运行
+                # 异常会被线程捕获，不会传播到主线程
 
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()

@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .exceptions import (
+    CertificateGenerationError, CertificateValidationError,
+    FileNotFoundError, FilePermissionError
+)
+
 logger = logging.getLogger(__name__)
 
 

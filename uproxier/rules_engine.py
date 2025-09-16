@@ -12,6 +12,11 @@ from typing import Dict, List, Optional, Any, DefaultDict
 import yaml
 from mitmproxy import http
 
+from .exceptions import (
+    ConfigValidationError, ConfigInheritanceError, RuleValidationError,
+    RuleExecutionError, FileNotFoundError
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -571,7 +576,11 @@ class RulesEngine:
                 enabled_count = sum(1 for r in self.rules if getattr(r, 'enabled', True))
                 logger.info(f"加载了 {len(self.rules)} 条规则（启用 {enabled_count} 条）")
 
+        except (ConfigInheritanceError, RuleValidationError) as e:
+            # 配置错误：直接抛出，让调用者处理
+            raise
         except Exception as e:
+            # 其他错误：可能是临时问题，可以继续运行
             if not self.silent:
                 logger.error(f"加载规则失败: {e}")
             self.rules = []
@@ -623,18 +632,19 @@ class RulesEngine:
         extends_file = Path(extends_file).resolve()
 
         if not extends_file.exists():
-            error_msg = (
-                f"\n继承配置文件不存在\n"
-                f"当前配置文件: {current_dir}\n"
-                f"尝试继承: {config['extends']}\n"
-                f"解析后路径: {extends_file}\n"
-                f"\n解决建议:\n"
-                f"  1. 检查继承文件路径是否正确\n"
-                f"  2. 确认相对路径层级 (../ 数量)\n"
-                f"  3. 验证文件是否真实存在\n"
-                f"  4. 使用绝对路径避免路径问题"
+            suggestions = [
+                "检查继承文件路径是否正确",
+                "确认相对路径层级 (../ 数量)",
+                "验证文件是否真实存在",
+                "使用绝对路径避免路径问题"
+            ]
+            raise ConfigInheritanceError(
+                f"继承配置文件不存在: {extends_file}",
+                extends_file=config['extends'],
+                current_file=str(current_dir),
+                resolved_path=str(extends_file),
+                suggestions=suggestions
             )
-            raise FileNotFoundError(error_msg)
 
         with open(extends_file, 'r', encoding='utf-8') as f:
             base_config = yaml.safe_load(f)
@@ -692,38 +702,86 @@ class RulesEngine:
 
 
     def _validate_rule_config(self, rule_config: Dict[str, Any], idx: int) -> None:
+        """验证规则配置
+        
+        Args:
+            rule_config: 规则配置字典
+            idx: 规则索引
+            
+        Raises:
+            RuleValidationError: 规则配置验证失败时抛出
+        """
         name = rule_config.get('name', f'rule_{idx}')
 
         allowed_top = {'name', 'enabled', 'priority', 'stop_after_match', 'match', 'request_pipeline',
                        'response_pipeline'}
         unknown = set(rule_config.keys()) - allowed_top
         if unknown:
-            raise ValueError(f"规则 '{name}' 存在不支持的顶层字段: {sorted(list(unknown))}")
+            raise RuleValidationError(
+                f"规则存在不支持的顶层字段: {sorted(list(unknown))}",
+                rule_name=name,
+                rule_index=idx,
+                field='top_level'
+            )
+            
         match = rule_config.get('match', {})
         if not isinstance(match, dict):
-            raise ValueError(f"规则 '{name}' 的 match 必须为对象")
+            raise RuleValidationError(
+                "规则的 match 必须为对象",
+                rule_name=name,
+                rule_index=idx,
+                field='match'
+            )
+            
         for key in ('request_pipeline', 'response_pipeline'):
             pipeline = rule_config.get(key, [])
             if pipeline is None:
                 continue
             if not isinstance(pipeline, list):
-                raise ValueError(f"规则 '{name}' 的 {key} 必须为数组")
+                raise RuleValidationError(
+                    f"规则的 {key} 必须为数组",
+                    rule_name=name,
+                    rule_index=idx,
+                    field=key
+                )
             for i, step in enumerate(pipeline):
                 if not isinstance(step, dict):
-                    raise ValueError(f"规则 '{name}' 的 {key}[{i}] 必须为对象")
+                    raise RuleValidationError(
+                        f"规则的 {key}[{i}] 必须为对象",
+                        rule_name=name,
+                        rule_index=idx,
+                        field=f"{key}[{i}]"
+                    )
                 if 'action' not in step:
-                    raise ValueError(f"规则 '{name}' 的 {key}[{i}] 缺少 action 字段")
+                    raise RuleValidationError(
+                        f"规则的 {key}[{i}] 缺少 action 字段",
+                        rule_name=name,
+                        rule_index=idx,
+                        field=f"{key}[{i}].action"
+                    )
                 action = step.get('action')
                 params = step.get('params', {})
                 if params is not None and not isinstance(params, (dict, str, int, float, list)):
-                    raise ValueError(f"规则 '{name}' 的 {key}[{i}].params 类型不支持")
+                    raise RuleValidationError(
+                        f"规则的 {key}[{i}].params 类型不支持",
+                        rule_name=name,
+                        rule_index=idx,
+                        field=f"{key}[{i}].params"
+                    )
                 req_actions = {'set_header', 'remove_header', 'rewrite_url', 'redirect', 'replace_body',
                                'short_circuit', 'set_query_param', 'set_body_param'}
                 res_actions = {'set_status', 'set_header', 'remove_header', 'replace_body', 'replace_body_json',
                                'mock_response', 'delay', 'short_circuit', 'conditional'}
                 valid = req_actions if key == 'request_pipeline' else res_actions
                 if action not in valid:
-                    raise ValueError(f"规则 '{name}' 的 {key}[{i}].action 不支持: {action}")
+                    suggestions = [a for a in valid if a.startswith(action[:3])] if action else []
+                    raise RuleValidationError(
+                        f"规则的 {key}[{i}].action 不支持: {action}",
+                        rule_name=name,
+                        rule_index=idx,
+                        field=f"{key}[{i}].action",
+                        suggestions=suggestions
+                    )
 
     def apply_request_rules(self, request: http.Request) -> Optional[http.Request]:
         """应用请求规则，支持命中后停止(stop_after_match)与多规则叠加"""
@@ -775,22 +833,32 @@ class RulesEngine:
                     continue
                 if not rule.match(req):
                     continue
-            except Exception:
+            except Exception as e:
+                if not self.silent:
+                    logger.warning(f"规则匹配失败 {rule.name}: {e}")
                 continue
-            modified_response = rule.apply_response_actions(response)
-            if modified_response is not None:
-                try:
-                    existing = modified_response.headers.get('X-Rule-Name') or ''
-                    if existing:
-                        if rule.name not in [s.strip() for s in existing.split(',')]:
-                            modified_response.headers['X-Rule-Name'] = existing + ',' + rule.name
-                    else:
-                        modified_response.headers['X-Rule-Name'] = rule.name
-                except Exception:
-                    pass
-                result_response = modified_response
-                if getattr(rule, 'stop_after_match', False):
-                    break
+                
+            try:
+                modified_response = rule.apply_response_actions(response)
+                if modified_response is not None:
+                    try:
+                        existing = modified_response.headers.get('X-Rule-Name') or ''
+                        if existing:
+                            if rule.name not in [s.strip() for s in existing.split(',')]:
+                                modified_response.headers['X-Rule-Name'] = existing + ',' + rule.name
+                        else:
+                            modified_response.headers['X-Rule-Name'] = rule.name
+                    except Exception as e:
+                        if not self.silent:
+                            logger.warning(f"设置规则名称头失败 {rule.name}: {e}")
+                    result_response = modified_response
+                    if getattr(rule, 'stop_after_match', False):
+                        break
+            except Exception as e:
+                if not self.silent:
+                    logger.error(f"规则执行失败 {rule.name}: {e}")
+                # 继续执行其他规则，不因单个规则失败而中断
+                continue
         return result_response
 
 
