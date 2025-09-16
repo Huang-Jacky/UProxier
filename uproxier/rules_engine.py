@@ -690,66 +690,6 @@ class RulesEngine:
             out['method'] = m
         return out
 
-    def reload_rules(self):
-        """重新加载规则"""
-        self.load_rules()
-
-    def add_rule(self, rule_config: Dict[str, Any]):
-        """添加新规则"""
-        rule = Rule(rule_config)
-        self.rules.append(rule)
-        self.rules.sort(key=lambda x: x.priority, reverse=True)
-        self.save_rules()
-
-    def remove_rule(self, rule_name: str):
-        """删除规则"""
-        self.rules = [rule for rule in self.rules if rule.name != rule_name]
-        self.save_rules()
-
-    def enable_rule(self, rule_name: str, enabled: bool = True):
-        """启用/禁用规则"""
-        for rule in self.rules:
-            if rule.name == rule_name:
-                rule.enabled = enabled
-                break
-        self.save_rules()
-
-    def save_rules(self):
-        """保存规则到配置文件"""
-        try:
-            # 读取现有配置，保留 capture 和其他配置
-            existing_config = {}
-            config_path = Path(self.config_path)
-            if config_path.exists():
-                try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        existing_config = yaml.safe_load(f) or {}
-                except Exception:
-                    pass
-
-            config = existing_config.copy()
-            config['rules'] = [
-                {
-                    'name': rule.name,
-                    'enabled': rule.enabled,
-                    'priority': rule.priority,
-                    'stop_after_match': getattr(rule, 'stop_after_match', False),
-                    'match': self._export_match(getattr(rule, 'match_config', {}) or {}),
-                    'request_pipeline': getattr(rule, 'request_pipeline', []),
-                    'response_pipeline': getattr(rule, 'response_pipeline', [])
-                }
-                for rule in self.rules
-            ]
-
-            with open(config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-
-            if not self.silent:
-                logger.info("规则已保存")
-
-        except Exception as e:
-            if not self.silent:
-                logger.error(f"保存规则失败: {e}")
 
     def _validate_rule_config(self, rule_config: Dict[str, Any], idx: int) -> None:
         name = rule_config.get('name', f'rule_{idx}')
@@ -853,20 +793,6 @@ class RulesEngine:
                     break
         return result_response
 
-    def get_rules(self) -> List[Dict[str, Any]]:
-        """获取所有规则"""
-        result: List[Dict[str, Any]] = []
-        for rule in self.rules:
-            result.append({
-                'name': rule.name,
-                'enabled': rule.enabled,
-                'priority': rule.priority,
-                'stop_after_match': getattr(rule, 'stop_after_match', False),
-                'match': self._export_match(getattr(rule, 'match_config', {}) or {}),
-                'request_pipeline': getattr(rule, 'request_pipeline', []),
-                'response_pipeline': getattr(rule, 'response_pipeline', []),
-            })
-        return result
 
 
 def get_uproxier_dir() -> Path:
