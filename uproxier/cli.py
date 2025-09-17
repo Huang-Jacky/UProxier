@@ -104,7 +104,8 @@ def cli(verbose: bool):
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.basicConfig(level=logging.INFO)
+        # 没有 --verbose 时，只输出 WARNING 及以上级别的日志
+        logging.basicConfig(level=logging.WARNING)
 
 
 @cli.command()

@@ -8,11 +8,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .exceptions import (
-    CertificateGenerationError, CertificateValidationError,
-    FileNotFoundError, FilePermissionError
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -119,22 +114,27 @@ class CertificateManager:
             # 作为兜底，尝试 mitmproxy 的证书存储（不同版本 API 可能变化，不再首选）
             try:
                 from mitmproxy.certs import CertStore
+                from cryptography.hazmat.primitives import serialization
+
                 cert_store = CertStore.from_store(str(self.cert_dir), "mitmproxy", 2048)
+
                 if not self.ca_cert_path.exists():
                     with open(self.ca_cert_path, 'wb') as f:
-                        # 新版本接口：default_ca.cert / default_ca.key → to_pem()
-                        try:
-                            f.write(cert_store.default_ca.cert.to_pem())
-                        except Exception:
-                            f.write(cert_store.default_ca.get_cert())
+                        f.write(cert_store.default_ca.to_pem())
+
                 if not self.ca_key_path.exists():
                     with open(self.ca_key_path, 'wb') as f:
-                        try:
-                            f.write(cert_store.default_ca.key.to_pem())
-                        except Exception:
-                            f.write(cert_store.default_ca.get_private_key())
+                        private_key = cert_store.default_privatekey
+                        key_pem = private_key.private_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PrivateFormat.PKCS8,
+                            encryption_algorithm=serialization.NoEncryption()
+                        )
+                        f.write(key_pem)
+
                 if not self.ca_cert_der_path.exists():
                     self.convert_to_der()
+
                 if not self.silent:
                     logger.info("CA 证书生成成功")
             except Exception as e2:

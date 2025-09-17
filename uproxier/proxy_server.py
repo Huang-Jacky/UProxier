@@ -15,12 +15,9 @@ from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
 
 from .certificate_manager import CertificateManager
+from .exceptions import ProxyStartupError
 from .rules_engine import RulesEngine, default_config_path
 from .web_interface import WebInterface
-from .exceptions import (
-    ConfigInheritanceError, RuleExecutionError, ProxyStartupError,
-    WebInterfaceStartupError
-)
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +490,7 @@ class ProxyAddon:
                 request_info['response_original_content'] = orig_resp_content_info
 
             # 更新响应信息（以规则处理后的响应为准）
-            _final = self._analyze_response_content(flow.response.headers, flow.response.content)
+            _final = self._analyze_response_content(dict(flow.response.headers), flow.response.content)
             response_content_type = _final['content_type']
             response_transfer_encoding = _final['transfer_encoding']
             response_content_length = _final['content_length']
@@ -515,18 +512,18 @@ class ProxyAddon:
                     import random
                     base_ms = int(delay_time) if delay_time else 0
                     jit_ms = int(jitter) if jitter else 0
-                    total_ms = base_ms
+                    _total_ms = base_ms
                     if distrib:
                         d = str(distrib).lower()
                         if d == 'uniform':
-                            total_ms += random.randint(0, jit_ms)
+                            _total_ms += random.randint(0, jit_ms)
                         elif d == 'normal':
-                            total_ms = int(max(0, random.normalvariate(base_ms, max(1, jit_ms / 2))))
+                            _total_ms = max(0, int(random.normalvariate(base_ms, max(1.0, jit_ms / 2))))
                         elif d == 'exponential':
                             lam = 1.0 / max(1, base_ms if base_ms > 0 else 1)
-                            total_ms = int(random.expovariate(lam))
+                            _total_ms = int(random.expovariate(lam))
                     elif jit_ms:
-                        total_ms += random.randint(0, jit_ms)
+                        _total_ms += random.randint(0, jit_ms)
                     buckets = []
                     if p50:
                         buckets.append((0.5, int(p50)))
@@ -540,58 +537,36 @@ class ProxyAddon:
                         for prob, val in buckets:
                             acc += prob
                             if r <= acc:
-                                total_ms = val
+                                _total_ms = val
                                 break
-                    return max(0, int(total_ms))
+                    return max(0, int(_total_ms))
                 except Exception:
                     return 0
 
             total_ms = _compute_delay_ms()
             if total_ms > 0:
-                # 强制持有并延后发送，确保客户端实际延迟
-                try:
-                    if hasattr(flow, 'reply') and flow.reply is not None and hasattr(flow.reply, 'take') and hasattr(
-                            flow.reply, 'send'):
-                        flow.reply.take()
-                        try:
-                            flow.response.headers['X-Delay-Applied'] = 'true'
-                            flow.response.headers['X-Delay-Effective'] = str(int(total_ms))
-                        except Exception:
-                            pass
-                        if not self.silent:
-                            try:
-                                logger.info(f"响应延迟 {total_ms}ms → {flow.request.method} {flow.request.pretty_url}")
-                            except Exception:
-                                pass
-                        time.sleep(total_ms / 1000.0)
-                        flow.reply.send()
-                        try:
-                            request_info['response_time'] = (request_info.get('response_time') or 0) + (
-                                    total_ms / 1000.0)
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            flow.response.headers['X-Delay-Applied'] = 'true'
-                            flow.response.headers['X-Delay-Effective'] = str(int(total_ms))
-                        except Exception:
-                            pass
-                        if not self.silent:
-                            try:
-                                logger.info(f"响应延迟(降级) {total_ms}ms → {flow.request.method} {flow.request.pretty_url}")
-                            except Exception:
-                                pass
-                        time.sleep(total_ms / 1000.0)
-                        try:
-                            request_info['response_time'] = (request_info.get('response_time') or 0) + (
-                                    total_ms / 1000.0)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                has_reply = (hasattr(flow, 'reply') and getattr(flow, 'reply', None) is not None and
+                             hasattr(getattr(flow, 'reply', None), 'take') and hasattr(getattr(flow, 'reply', None),
+                                                                                       'send'))
+                flow.response.headers['X-Delay-Applied'] = 'true'
+                flow.response.headers['X-Delay-Effective'] = str(int(total_ms))
+
+                log_msg = f"响应延迟{' (降级)' if not has_reply else ''} {total_ms}ms → {flow.request.method} {flow.request.pretty_url}"
+                logger.info(log_msg)
+
+                if has_reply:
+                    getattr(flow, 'reply').take()
+
+                # 阻塞延迟
+                time.sleep(total_ms / 1000.0)
+
+                if has_reply:
+                    getattr(flow, 'reply').send()
+
+                request_info['response_time'] = (request_info.get('response_time') or 0) + (total_ms / 1000.0)
 
             # 计算最终响应信息（在延迟完成后再写入，以保持前后端一致）
-            _final2 = self._analyze_response_content(flow.response.headers, flow.response.content)
+            _final2 = self._analyze_response_content(dict(flow.response.headers), flow.response.content)
             response_content_type = _final2['content_type']
             response_transfer_encoding = _final2['transfer_encoding']
             response_content_length = _final2['content_length']
@@ -648,8 +623,7 @@ class ProxyAddon:
 
     def error(self, flow: http.HTTPFlow) -> None:
         """处理错误"""
-        if not self.silent:
-            logger.error(f"代理错误: {flow.error}")
+        logger.error(f"代理错误: {flow.error}")
 
         # 更新请求状态为错误
         for req in self.traffic_data:
@@ -673,8 +647,7 @@ class ProxyAddon:
                 with open(self.save_path, 'a', encoding='utf-8') as f:
                     f.write(json.dumps(record, ensure_ascii=False) + '\n')
         except Exception as e:
-            if not self.silent:
-                logger.error(f"保存请求数据失败: {e}")
+            logger.error(f"保存请求数据失败: {e}")
 
 
 class ProxyServer:
@@ -690,11 +663,53 @@ class ProxyServer:
         self.rules_engine = RulesEngine(self.config_path, silent=self.silent)
         self.cert_manager = CertificateManager(silent=self.silent)
         self.web_interface = WebInterface()
-        self.addon = ProxyAddon(self.rules_engine, self.web_interface, save_path=save_path, save_format=save_format,
-                                silent=self.silent, config_path=self.config_path)
+        self.addon = ProxyAddon(
+            self.rules_engine,
+            self.web_interface,
+            save_path=save_path,
+            save_format=save_format,
+            silent=self.silent,
+            config_path=self.config_path
+        )
         self.master = None
         self.is_running = False
         self._process = None  # 用于存储异步启动的进程对象
+
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self):
+        """设置信号处理器，优雅地处理中断"""
+        import signal
+
+        def signal_handler(signum, frame):
+            logger.info("接收到中断信号，正在停止代理服务器...")
+            try:
+                self.stop()
+            except Exception as e:
+                logger.warning(f"停止代理服务器时发生错误: {e}")
+                import sys
+                sys.exit(1)
+
+        try:
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+        except (OSError, ValueError) as e:
+            logger.warning(f"无法设置信号处理器: {e}")
+
+    def _setup_ssl_callback_handling(self):
+        """设置 SSL 回调异常处理，避免 KeyboardInterrupt 导致的崩溃"""
+        try:
+            import ssl
+            import OpenSSL.SSL
+
+            if hasattr(ssl.SSLContext, 'keylog_callback'):
+                ssl.SSLContext.keylog_callback = None
+                logger.debug("已禁用 SSL keylog 回调，避免 KeyboardInterrupt 崩溃")
+
+        except ImportError:
+            logger.debug("SSL 模块不可用，跳过 SSL 回调设置")
+        except Exception as e:
+            logger.warning(f"设置 SSL 回调处理失败: {e}")
 
     def start(self, port: int = 8001, web_port: int = 8002):
         """启动代理服务器"""
@@ -715,11 +730,7 @@ class ProxyServer:
             if self.enable_https_override is not None:
                 enable_https = bool(self.enable_https_override)
 
-            # 仅在启用 HTTPS 时才准备证书
-            if enable_https:
-                self.cert_manager.ensure_certificates()
-
-            # 在静默模式下抑制 mitmproxy 的日志输出
+            # 在静默模式下抑制所有日志输出
             if self.silent:
                 import logging
                 import os
@@ -736,10 +747,20 @@ class ProxyServer:
                 logging.getLogger('urllib3').setLevel(logging.ERROR)
                 # 抑制 asyncio 的日志
                 logging.getLogger('asyncio').setLevel(logging.ERROR)
+                # 抑制 Flask 的日志
+                logging.getLogger('werkzeug').setLevel(logging.ERROR)
+                logging.getLogger('flask').setLevel(logging.ERROR)
+                # 抑制自己的日志输出
+                logging.getLogger('uproxier').setLevel(logging.ERROR)
 
                 # 设置环境变量抑制 mitmproxy 输出
                 os.environ['MITMPROXY_QUIET'] = '1'
                 os.environ['MITMPROXY_TERMLOG_VERBOSITY'] = 'error'
+                os.environ['FLASK_DEBUG'] = '0'
+
+            # 仅在启用 HTTPS 时才准备证书
+            if enable_https:
+                self.cert_manager.ensure_certificates()
 
             # 配置 mitmproxy（固定监听地址）
             host = DEFAULT_HOST
@@ -799,16 +820,17 @@ class ProxyServer:
 
             # 启动代理服务器
             display_host = self._prefer_lan_host(host)
-            if not self.silent:
-                logger.info(f"启动代理服务器: {display_host}:{port}")
-                logger.info(f"Web 界面: http://{display_host}:{web_port}")
-                logger.info(f"HTTPS 拦截: {'启用' if enable_https else '禁用（TLS 直通）'}")
-                logger.info("按 Ctrl+C 停止服务器")
+            logger.info(f"启动代理服务器: {display_host}:{port}")
+            logger.info(f"Web 界面: http://{display_host}:{web_port}")
+            logger.info(f"HTTPS 拦截: {'启用' if enable_https else '禁用（TLS 直通）'}")
+            logger.info("按 Ctrl+C 停止服务器")
 
             self.is_running = True
 
             # 在事件循环中初始化并运行 DumpMaster
             async def _run_master():
+                self._setup_ssl_callback_handling()
+
                 self.master = DumpMaster(opts)
                 self.master.addons.add(self.addon)
                 try:
@@ -850,11 +872,9 @@ class ProxyServer:
             asyncio.run(_run_master())
 
         except KeyboardInterrupt:
-            if not self.silent:
-                logger.info("正在停止代理服务器...")
+            logger.info("正在停止代理服务器...")
         except Exception as e:
-            if not self.silent:
-                logger.error(f"启动代理服务器失败: {e}")
+            logger.error(f"启动代理服务器失败: {e}")
             raise ProxyStartupError(f"代理服务器启动失败: {e}", port=port, web_port=web_port)
         finally:
             self.stop()
@@ -912,16 +932,14 @@ class ProxyServer:
             self.is_running = True
             self._process = process  # 保存进程引用，用于停止
 
-            if not self.silent:
-                logger.info(f"服务器已在后台启动 (PID: {process.pid})")
-                logger.info(f"代理地址: {DEFAULT_HOST}:{port}")
-                logger.info(f"Web 界面: http://{DEFAULT_HOST}:{web_port}")
+            logger.info(f"服务器已在后台启动 (PID: {process.pid})")
+            logger.info(f"代理地址: {DEFAULT_HOST}:{port}")
+            logger.info(f"Web 界面: http://{DEFAULT_HOST}:{web_port}")
 
             return process
 
         except Exception as e:
-            if not self.silent:
-                logger.error(f"启动失败: {e}")
+            logger.error(f"启动失败: {e}")
             raise
 
     def stop(self):
@@ -935,18 +953,30 @@ class ProxyServer:
             except subprocess.TimeoutExpired:
                 self._process.kill()
             except Exception as e:
-                if not self.silent:
-                    logger.error(f"停止进程失败: {e}")
+                logger.error(f"停止进程失败: {e}")
             finally:
                 self._process = None
 
+        # 安全地停止 master，避免事件循环关闭错误
         if self.master:
-            self.master.shutdown()
+            try:
+                self.master.shutdown()
+            except RuntimeError as e:
+                if "Event loop is closed" in str(e):
+                    logger.debug("事件循环已关闭，跳过 master.shutdown()")
+                else:
+                    logger.warning(f"停止 master 时发生错误: {e}")
+            except Exception as e:
+                logger.warning(f"停止 master 时发生异常: {e}")
+
         if self.web_interface:
-            self.web_interface.stop()
+            try:
+                self.web_interface.stop()
+            except Exception as e:
+                logger.warning(f"停止 web 界面时发生错误: {e}")
+
         self.is_running = False
-        if not self.silent:
-            logger.info("代理服务器已停止")
+        logger.info("代理服务器已停止")
 
     def _prefer_lan_host(self, bind_host: str) -> str:
         """当绑定 DEFAULT_HOST/:: 时优先返回局域网 IP，否则返回原 host。失败回退 127.0.0.1。"""
@@ -982,12 +1012,6 @@ if __name__ == "__main__":
     parser.add_argument("--log-level", default="INFO", help="日志级别")
 
     args = parser.parse_args()
-
-    # 配置日志
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
 
     # 启动代理服务器
     config_path = args.config or default_config_path()

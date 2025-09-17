@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import json
 import logging
 import os
 import re
@@ -12,9 +11,9 @@ from typing import Dict, List, Optional, Any, DefaultDict
 import yaml
 from mitmproxy import http
 
+from .action_processors import ActionProcessorManager
 from .exceptions import (
-    ConfigValidationError, ConfigInheritanceError, RuleValidationError,
-    RuleExecutionError, FileNotFoundError
+    ConfigInheritanceError, RuleValidationError
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +42,8 @@ class Rule:
         self.match_config = conds
         self.request_pipeline: List[Dict[str, Any]] = rule_config.get('request_pipeline', [])
         self.response_pipeline: List[Dict[str, Any]] = rule_config.get('response_pipeline', [])
+
+        self.action_manager = ActionProcessorManager(config_dir)
         # 命中后是否停止后续规则
         self.stop_after_match = rule_config.get('stop_after_match', False)
 
@@ -131,6 +132,14 @@ class Rule:
         except Exception:
             return getattr(request, 'path', getattr(request, 'pretty_url', ''))
 
+    def get_host_key(self) -> Optional[str]:
+        """获取规则的主机键，用于索引优化"""
+        return getattr(self, '_host_key', None)
+
+    def get_path_prefix(self) -> Optional[str]:
+        """获取规则的路径前缀，用于索引优化"""
+        return getattr(self, '_path_prefix', None)
+
     def apply_request_actions(self, request: http.Request) -> Optional[http.Request]:
         """应用请求动作（仅通用 DSL 的 request_pipeline）"""
         modified = False
@@ -138,138 +147,11 @@ class Rule:
         for step in self.request_pipeline:
             action = step.get('action')
             params = step.get('params', {})
-            if action == 'set_header':
-                for k, v in params.items():
-                    request.headers[k] = v
-                    modified = True
-            elif action == 'remove_header':
-                keys = params if isinstance(params, list) else []
-                for k in keys:
-                    if k in request.headers:
-                        del request.headers[k]
-                        modified = True
-            elif action == 'rewrite_url':
-                _from = params.get('from', '')
-                _to = params.get('to', '')
-                if _from:
-                    request.url = request.url.replace(_from, _to)
-                    modified = True
-            elif action == 'redirect':
-                to = params if isinstance(params, str) else params.get('to')
-                if to:
-                    request.url = to
-                    modified = True
-            elif action == 'replace_body':
-                if request.content:
-                    src = params.get('from', '')
-                    dst = params.get('to', '')
-                    try:
-                        content = request.content.decode('utf-8', errors='ignore')
-                        request.content = content.replace(src, dst).encode('utf-8')
-                        modified = True
-                    except Exception:
-                        pass
-            elif action == 'set_query_param':
-                # params: { key: value, ... }
-                try:
-                    from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
-                    url = request.url
-                    parsed = urlparse(url)
-                    q = dict(parse_qsl(parsed.query, keep_blank_values=True))
-                    for k, v in (params or {}).items():
-                        q[str(k)] = str(v)
-                    new_query = urlencode(q, doseq=False)
-                    request.url = urlunparse(
-                        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
-                    modified = True
-                except Exception:
-                    pass
-            elif action == 'set_body_param':
-                # 支持 application/x-www-form-urlencoded 与 application/json（含数组/嵌套路径 key.a.b 或 0.properties.x）
-                try:
-                    ctype = request.headers.get('content-type', '').lower()
-                    if 'application/x-www-form-urlencoded' in ctype:
-                        from urllib.parse import parse_qsl, urlencode
-                        body = request.content.decode('utf-8', errors='ignore') if request.content else ''
-                        kv = dict(parse_qsl(body, keep_blank_values=True))
-                        for k, v in (params or {}).items():
-                            kv[str(k)] = str(v)
-                        request.content = urlencode(kv).encode('utf-8')
-                        request.headers['Content-Length'] = str(len(request.content))
-                        modified = True
-                    elif 'application/json' in ctype:
-                        import json as _json
-                        try:
-                            obj = _json.loads(
-                                request.content.decode('utf-8', errors='ignore') or '{}') if request.content else {}
-                        except Exception:
-                            obj = {}
 
-                        def _set_deep(container, key_path, value):
-                            keys = str(key_path).split('.')
-                            cur = container
-                            for i, key in enumerate(keys):
-                                is_last = (i == len(keys) - 1)
-                                if isinstance(cur, list):
-                                    try:
-                                        idx = int(key)
-                                    except Exception:
-                                        return
-                                    if idx < 0 or idx >= len(cur):
-                                        return
-                                    if is_last:
-                                        cur[idx] = value
-                                    else:
-                                        if not isinstance(cur[idx], (dict, list)):
-                                            return
-                                        cur = cur[idx]
-                                else:
-                                    if is_last:
-                                        cur[key] = value
-                                    else:
-                                        if key not in cur or not isinstance(cur[key], (dict, list)):
-                                            cur[key] = {}
-                                        cur = cur[key]
+            # 使用动作处理器处理
+            if self.action_manager.process_request_action(action, request, params):
+                modified = True
 
-                        def _apply_params_to(target):
-                            for k, v in (params or {}).items():
-                                if isinstance(target, (dict, list)):
-                                    _set_deep(target, k, v)
-
-                        if isinstance(obj, list):
-                            for item in obj:
-                                _apply_params_to(item)
-                        elif isinstance(obj, dict):
-                            _apply_params_to(obj)
-                        request.content = _json.dumps(obj, ensure_ascii=False).encode('utf-8')
-                        request.headers['Content-Length'] = str(len(request.content))
-                        modified = True
-                except Exception:
-                    pass
-            elif action == 'short_circuit':
-                # 请求阶段短路：在 request 对象上挂载预构造的响应，供上层捕获并直接返回
-                try:
-                    sc = params or {}
-                    status_code = int(sc.get('status') if 'status' in sc else sc.get('status_code', 200))
-                    hdrs = sc.get('headers') or {}
-                    content = sc.get('content')
-                    body: bytes = b''
-                    if content is not None:
-                        if isinstance(content, dict):
-                            body = json.dumps(content, ensure_ascii=False).encode('utf-8')
-                            if 'Content-Type' not in hdrs:
-                                hdrs['Content-Type'] = 'application/json; charset=utf-8'
-                        elif isinstance(content, str):
-                            body = content.encode('utf-8')
-                            if 'Content-Type' not in hdrs:
-                                hdrs['Content-Type'] = 'text/plain; charset=utf-8'
-                        else:
-                            body = str(content).encode('utf-8')
-                    response = http.Response.make(status_code, body, hdrs)
-                    setattr(request, 'short_circuit_response', response)
-                    modified = True
-                except Exception:
-                    pass
         return request if modified else None
 
     def apply_response_actions(self, response: http.Response) -> Optional[http.Response]:
@@ -278,227 +160,11 @@ class Rule:
         for step in self.response_pipeline:
             action = step.get('action')
             params = step.get('params', {})
-            if action == 'set_status':
-                try:
-                    response.status_code = int(params)
-                    modified = True
-                except Exception:
-                    pass
-            elif action == 'set_header':
-                for k, v in params.items():
-                    response.headers[k] = v
-                    modified = True
-            elif action == 'remove_header':
-                keys = params if isinstance(params, list) else []
-                for k in keys:
-                    if k in response.headers:
-                        del response.headers[k]
-                        modified = True
-            elif action == 'replace_body':
-                if response.content:
-                    src = params.get('from', '')
-                    dst = params.get('to', '')
-                    try:
-                        content = response.content.decode('utf-8', errors='ignore')
-                        response.content = content.replace(src, dst).encode('utf-8')
-                        modified = True
-                    except Exception:
-                        pass
-            elif action == 'replace_body_json':
-                # 精确修改 JSON 内某路径的值：
-                # 支持三种写法：
-                # 1) 单个: { path: 'a.b.c', value: <v> }
-                # 2) 批量(values: 对象): { values: { 'a.b': 1, 'x.y': 'ok' } }
-                # 3) 批量(values: 数组): { values: [ { path: 'a.b', value: 1 }, { path: 'x.y', value: 'ok' } ] }
-                try:
-                    import json as _json
-                    obj = _json.loads(
-                        response.content.decode('utf-8', errors='ignore') or 'null') if response.content else None
 
-                    def _set_deep(container, key_path, value):
-                        keys = str(key_path).split('.')
-                        cur = container
-                        for i, key in enumerate(keys):
-                            is_last = (i == len(keys) - 1)
-                            if isinstance(cur, list):
-                                try:
-                                    idx = int(key)
-                                except Exception:
-                                    return False
-                                if idx < 0 or idx >= len(cur):
-                                    return False
-                                if is_last:
-                                    cur[idx] = value
-                                    return True
-                                if not isinstance(cur[idx], (dict, list)):
-                                    return False
-                                cur = cur[idx]
-                            elif isinstance(cur, dict):
-                                if is_last:
-                                    cur[key] = value
-                                    return True
-                                if key not in cur or not isinstance(cur[key], (dict, list)):
-                                    cur[key] = {}
-                                cur = cur[key]
-                            else:
-                                return False
-
-                    def _apply_single(pth, val):
-                        if obj is None:
-                            return False
-                        return _set_deep(obj, pth, val)
-
-                    did_modify = False
-                    # 1) 扁平直传优先：允许将 'values' 当作普通路径键使用（避免歧义）
-                    if isinstance(params, dict):
-                        reserved = {'path', 'value', 'to'}  # 不排除 'values'
-                        flat_pairs = {k: v for k, v in params.items() if k not in reserved}
-                        if flat_pairs:
-                            for kp, vv in flat_pairs.items():
-                                if _apply_single(kp, vv):
-                                    did_modify = True
-                    # 2) 若没有扁平键，再看批量 values 语法
-                    if not did_modify and isinstance(params, dict) and 'values' in params:
-                        vals = params.get('values')
-                        if isinstance(vals, dict):
-                            for kp, vv in vals.items():
-                                if _apply_single(kp, vv):
-                                    did_modify = True
-                        elif isinstance(vals, list):
-                            for ent in vals:
-                                if isinstance(ent, dict) and 'path' in ent and ('value' in ent or 'to' in ent):
-                                    vv = ent['value'] if 'value' in ent else ent.get('to')
-                                    if _apply_single(ent['path'], vv):
-                                        did_modify = True
-                    # 3) 最后回退到单键语法糖
-                    if not did_modify:
-                        path = params.get('path')
-                        to_val = params.get('value') if isinstance(params, dict) and 'value' in params else params.get(
-                            'to')
-                        if path is not None:
-                            if _apply_single(path, to_val):
-                                did_modify = True
-
-                    if did_modify:
-                        response.content = _json.dumps(obj, ensure_ascii=False).encode('utf-8')
-                        try:
-                            ct = response.headers.get('Content-Type', '')
-                            if 'application/json' not in ct.lower():
-                                response.headers['Content-Type'] = 'application/json; charset=utf-8'
-                        except Exception:
-                            response.headers['Content-Type'] = 'application/json; charset=utf-8'
-                        modified = True
-                except Exception:
-                    pass
-            elif action == 'mock_response':
-                mock = params or {}
-                # 直接设置状态码/头/体
-                if 'status_code' in mock:
-                    response.status_code = mock.get('status_code', 200)
-                # 便捷重定向：支持 redirect_to/location 字段
-                if 'redirect_to' in mock and mock.get('redirect_to'):
-                    # 若未显式指定状态码，则默认 302
-                    if 'status_code' not in mock:
-                        response.status_code = 302
-                    response.headers['Location'] = str(mock['redirect_to'])
-                if 'location' in mock and mock.get('location'):
-                    if 'status_code' not in mock:
-                        response.status_code = 302
-                    response.headers['Location'] = str(mock['location'])
-                if 'headers' in mock:
-                    # 不清空原有头，逐项覆盖/新增指定键
-                    for hk, hv in mock['headers'].items():
-                        response.headers[hk] = hv
-                if 'file' in mock:
-                    try:
-                        p = Path(mock['file']).expanduser()
-                        if not p.is_absolute():
-                            # 相对于配置文件目录
-                            if self.config_dir:
-                                p = (Path(self.config_dir) / p).resolve()
-                            else:
-                                # 回退到当前工作目录（向后兼容）
-                                p = (Path.cwd() / p).resolve()
-                        data = p.read_bytes()
-                        response.content = data
-                    except Exception as e:
-                        response.status_code = 500
-                        response.headers['Content-Type'] = 'text/plain; charset=utf-8'
-                        response.content = f"Mock file read error: {e}".encode('utf-8')
-                elif 'content' in mock:
-                    content = mock['content']
-                    if isinstance(content, dict):
-                        response.headers['Content-Type'] = 'application/json; charset=utf-8'
-                        response.content = json.dumps(content, ensure_ascii=False).encode('utf-8')
-                    elif isinstance(content, str):
-                        response.headers['Content-Type'] = 'text/plain; charset=utf-8'
-                        response.content = content.encode('utf-8')
-                    else:
-                        response.content = str(content).encode('utf-8')
+            # 使用动作处理器处理
+            if self.action_manager.process_response_action(action, response, params):
                 modified = True
-            elif action == 'delay':
-                delay_cfg = params or {}
-                if 'time' in delay_cfg:
-                    response.headers['X-Delay-Time'] = str(int(delay_cfg.get('time', 0)))
-                if 'jitter' in delay_cfg:
-                    response.headers['X-Delay-Jitter'] = str(int(delay_cfg.get('jitter', 0)))
-                if 'distribution' in delay_cfg:
-                    response.headers['X-Delay-Distrib'] = str(delay_cfg.get('distribution'))
-                for k in ('p50', 'p95', 'p99'):
-                    if k in delay_cfg:
-                        response.headers[f"X-Delay-{k.upper()}"] = str(int(delay_cfg[k]))
-                modified = True
-            elif action == 'conditional':
-                cond = params or {}
-                when = cond.get('when') or {}
-                then_steps = cond.get('then') or []
-                else_steps = cond.get('else') or []
 
-                def _match_cond(rsp: http.Response, spec: Dict[str, Any]) -> bool:
-                    try:
-                        if 'status_code' in spec and rsp.status_code != int(spec['status_code']):
-                            return False
-                        if 'headers' in spec:
-                            for hk, hv in (spec.get('headers') or {}).items():
-                                if hk not in rsp.headers or rsp.headers[hk] != hv:
-                                    return False
-                        if 'content_contains' in spec:
-                            body = rsp.content.decode('utf-8', errors='ignore') if rsp.content else ''
-                            if str(spec['content_contains']) not in body:
-                                return False
-                        return True
-                    except Exception:
-                        return False
-
-                branch = then_steps if _match_cond(response, when) else else_steps
-                # 递归执行分支中的动作
-                for step2 in branch:
-                    if not isinstance(step2, dict):
-                        continue
-                    act2 = step2.get('action')
-                    par2 = step2.get('params', {})
-                    tmp_rule = Rule(
-                        {'match': {}, 'request_pipeline': [], 'response_pipeline': [{'action': act2, 'params': par2}]})
-                    tmp_rule.enabled = True
-                    tmp_resp = tmp_rule.apply_response_actions(response)
-                    if tmp_resp is not None:
-                        response = tmp_resp
-                        modified = True
-            elif action == 'short_circuit':
-                mock = {'status_code': params.get('status', 200)}
-                if 'headers' in params:
-                    mock['headers'] = params['headers']
-                if 'content' in params:
-                    mock['content'] = params['content']
-                # 递归调用自身处理 mock
-                tmp_rule = {'match': {}, 'request_pipeline': [],
-                            'response_pipeline': [{'action': 'mock_response', 'params': mock}]}
-                temp = Rule(tmp_rule)
-                temp.enabled = True
-                tmp_resp = temp.apply_response_actions(response)
-                if tmp_resp is not None:
-                    response = tmp_resp
-                    modified = True
         return response if modified else None
 
     def _check_conditional_match(self, condition: Dict[str, Any], response: http.Response) -> bool:
@@ -532,6 +198,12 @@ class RulesEngine:
         self.config_path = config_path or default_config_path()
         self.silent = silent
         self.rules: List[Rule] = []
+
+        # 初始化索引
+        self._host_index: DefaultDict[str, List[Rule]] = defaultdict(list)
+        self._path_index: DefaultDict[str, List[Rule]] = defaultdict(list)
+        self._generic_rules: List[Rule] = []
+
         self.load_rules()
 
     def load_rules(self):
@@ -557,17 +229,19 @@ class RulesEngine:
             self.rules.sort(key=lambda x: x.priority, reverse=True)
 
             # 构建索引：host_key -> [Rule]，path_prefix -> [Rule]，以及通用列表
-            self._host_index: DefaultDict[str, List[Rule]] = defaultdict(list)
-            self._path_index: DefaultDict[str, List[Rule]] = defaultdict(list)
-            self._generic_rules: List[Rule] = []
+            self._host_index.clear()
+            self._path_index.clear()
+            self._generic_rules.clear()
 
             for r in self.rules:
                 inserted = False
-                if getattr(r, '_host_key', None):
-                    self._host_index[r._host_key].append(r)
+                host_key = r.get_host_key()
+                if host_key:
+                    self._host_index[host_key].append(r)
                     inserted = True
-                if getattr(r, '_path_prefix', None):
-                    self._path_index[r._path_prefix].append(r)
+                path_prefix = r.get_path_prefix()
+                if path_prefix:
+                    self._path_index[path_prefix].append(r)
                     inserted = True
                 if not inserted:
                     self._generic_rules.append(r)
@@ -700,7 +374,6 @@ class RulesEngine:
             out['method'] = m
         return out
 
-
     def _validate_rule_config(self, rule_config: Dict[str, Any], idx: int) -> None:
         """验证规则配置
         
@@ -723,7 +396,7 @@ class RulesEngine:
                 rule_index=idx,
                 field='top_level'
             )
-            
+
         match = rule_config.get('match', {})
         if not isinstance(match, dict):
             raise RuleValidationError(
@@ -732,7 +405,7 @@ class RulesEngine:
                 rule_index=idx,
                 field='match'
             )
-            
+
         for key in ('request_pipeline', 'response_pipeline'):
             pipeline = rule_config.get(key, [])
             if pipeline is None:
@@ -837,7 +510,7 @@ class RulesEngine:
                 if not self.silent:
                     logger.warning(f"规则匹配失败 {rule.name}: {e}")
                 continue
-                
+
             try:
                 modified_response = rule.apply_response_actions(response)
                 if modified_response is not None:
@@ -860,7 +533,6 @@ class RulesEngine:
                 # 继续执行其他规则，不因单个规则失败而中断
                 continue
         return result_response
-
 
 
 def get_uproxier_dir() -> Path:

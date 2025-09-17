@@ -52,18 +52,18 @@ class WebInterface:
             """提供包内静态文件服务"""
             from importlib.resources import files as _files
             from flask import Response
-            
+
             try:
                 # 构建文件路径
                 file_path = _files('uproxier') / 'templates' / 'static' / filename
-                
+
                 # 检查文件是否存在
                 if not file_path.exists():
                     return "File not found", 404
-                
+
                 # 读取文件内容
                 content = file_path.read_bytes()
-                
+
                 # 根据文件扩展名设置 MIME 类型
                 if filename.endswith('.css'):
                     mimetype = 'text/css'
@@ -71,9 +71,9 @@ class WebInterface:
                     mimetype = 'application/javascript'
                 else:
                     mimetype = 'application/octet-stream'
-                
+
                 return Response(content, mimetype=mimetype)
-                
+
             except Exception as e:
                 return f"Error loading file: {e}", 500
 
@@ -293,13 +293,8 @@ class WebInterface:
             try:
                 # 清空流量数据
                 self.traffic_data.clear()
-
-                # 通知代理服务器清空数据（如果可能的话）
-                # 这里可以添加与代理服务器的通信逻辑
-
-                # 清空预览缓存
                 self._binary_previews.clear()
-                # 重置预览缓存字节计数，避免内存统计漂移
+
                 try:
                     self._binary_previews_bytes = 0
                 except Exception:
@@ -553,8 +548,6 @@ class WebInterface:
             except Exception as e:
                 if not silent:
                     logger.error(f"Web 界面启动失败: {e}")
-                # 注意：这里不能直接抛出异常，因为是在线程中运行
-                # 异常会被线程捕获，不会传播到主线程
 
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
