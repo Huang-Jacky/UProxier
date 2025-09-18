@@ -130,7 +130,7 @@ uproxier start --help      # 查看启动命令的所有参数
 uproxier examples --help   # 查看示例管理命令的所有参数
 uproxier cert --help       # 查看证书管理命令的所有参数
 uproxier init --help       # 查看初始化命令的所有参数
-uproxier version --help    # 查看版本命令的所有参数
+uproxier info --help       # 查看版本信息命令的所有参数
 
 # 从源码运行
 python3 cli.py --help
@@ -138,7 +138,7 @@ python3 cli.py start --help      # 查看启动命令的所有参数
 python3 cli.py examples --help   # 查看示例管理命令的所有参数
 python3 cli.py cert --help       # 查看证书管理命令的所有参数
 python3 cli.py init --help       # 查看初始化命令的所有参数
-python3 cli.py version --help    # 查看版本命令的所有参数
+python3 cli.py info --help       # 查看版本信息命令的所有参数
 ```
 
 #### 全局选项
@@ -221,10 +221,10 @@ python3 cli.py init --config <path>                 # 指定配置文件路径
 
 ```bash
 # 从 PyPI 安装后使用
-uproxier version            # 显示版本信息
+uproxier info               # 显示版本信息
 
 # 从源码运行
-python3 cli.py version            # 显示版本信息
+python3 cli.py info               # 显示版本信息
 ```
 
 **规则示例管理**

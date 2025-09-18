@@ -481,13 +481,13 @@ def status():
 
 
 @cli.command()
-def version():
+def info():
     """显示版本信息"""
     console.print(Panel.fit(
-        f"[bold blue]代理服务器[/bold blue]\n"
+        f"[bold blue]UProxier[/bold blue]\n"
         f"版本: [green]{get_version()}[/green]\n"
-        f"作者: [yellow]{get_author()}[/yellow]\n"
-        "基于 mitmproxy 的代理解决方案\n"
+        f"作者: [yellow]{get_author()}[/yellow]\n\n"
+        "基于 mitmproxy 实现的网络代理和抓包工具\n"
         "支持 HTTP/HTTPS 代理、规则配置、Web 界面",
         title="ℹ️ 版本信息"
     ))
