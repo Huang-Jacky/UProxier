@@ -8,7 +8,7 @@ import pathlib
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 from mitmproxy import http
 from mitmproxy import options
@@ -108,11 +108,11 @@ class ProxyAddon:
             'preview': preview,
         }
 
-    def set_internal_targets(self, targets: set):
+    def set_internal_targets(self, targets: set) -> None:
         """设置内部不拦截的目标集合，元素为 (host, port)。"""
         self.internal_targets = targets or set()
 
-    def set_internal_ports(self, ports: set):
+    def set_internal_ports(self, ports: set) -> None:
         """设置内部不拦截的端口集合（仅按端口判断）。"""
         self.internal_web_ports = ports or set()
 
@@ -182,7 +182,7 @@ class ProxyAddon:
         inc = (cfg.get('include') or {})
         exc = (cfg.get('exclude') or {})
 
-        def _to_list(v):
+        def _to_list(v: Any) -> List[str]:
             if v is None:
                 return []
             if isinstance(v, list):
@@ -507,7 +507,7 @@ class ProxyAddon:
             p95 = flow.response.headers.get('X-Delay-P95')
             p99 = flow.response.headers.get('X-Delay-P99')
 
-            def _compute_delay_ms():
+            def _compute_delay_ms() -> int:
                 try:
                     import random
                     base_ms = int(delay_time) if delay_time else 0
@@ -639,7 +639,7 @@ class ProxyAddon:
             next((r for r in self.traffic_data if r['url'] == flow.request.pretty_url and r['status'] == 'error'),
                  None))
 
-    def _maybe_persist(self, record: Optional[Dict[str, Any]]):
+    def _maybe_persist(self, record: Optional[Dict[str, Any]]) -> None:
         if not record or not self.save_path:
             return
         try:
@@ -677,7 +677,7 @@ class ProxyServer:
 
         self._setup_signal_handlers()
 
-    def _setup_signal_handlers(self):
+    def _setup_signal_handlers(self) -> None:
         """设置信号处理器，优雅地处理中断"""
         import signal
 
@@ -696,7 +696,7 @@ class ProxyServer:
         except (OSError, ValueError) as e:
             logger.warning(f"无法设置信号处理器: {e}")
 
-    def _setup_ssl_callback_handling(self):
+    def _setup_ssl_callback_handling(self) -> None:
         """设置 SSL 回调异常处理，避免 KeyboardInterrupt 导致的崩溃"""
         try:
             import ssl
@@ -711,7 +711,7 @@ class ProxyServer:
         except Exception as e:
             logger.warning(f"设置 SSL 回调处理失败: {e}")
 
-    def start(self, port: int = 8001, web_port: int = 8002):
+    def start(self, port: int = 8001, web_port: int = 8002) -> None:
         """启动代理服务器"""
         try:
             # 读取配置：是否启用 HTTPS 拦截
@@ -879,7 +879,7 @@ class ProxyServer:
         finally:
             self.stop()
 
-    def start_async(self, port: int = 8001, web_port: int = 8002):
+    def start_async(self, port: int = 8001, web_port: int = 8002) -> None:
         """异步启动代理服务器（非阻塞）"""
         import subprocess
         import sys
@@ -942,7 +942,7 @@ class ProxyServer:
             logger.error(f"启动失败: {e}")
             raise
 
-    def stop(self):
+    def stop(self) -> None:
         """停止代理服务器"""
         if hasattr(self, '_process') and self._process:
             # 停止通过 start_async 启动的进程

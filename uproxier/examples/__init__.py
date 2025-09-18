@@ -13,7 +13,7 @@ from pathlib import Path
 EXAMPLES_DIR = Path(__file__).parent
 
 
-def get_example_files():
+def get_example_files() -> List[str]:
     """获取所有示例 YAML 文件"""
     yaml_files = []
     for file_path in EXAMPLES_DIR.glob("*.yaml"):
@@ -22,7 +22,7 @@ def get_example_files():
     return sorted(yaml_files)
 
 
-def get_example_content(filename):
+def get_example_content(filename: str) -> str:
     """获取指定示例文件的内容"""
     file_path = EXAMPLES_DIR / filename
     if file_path.exists():
@@ -30,7 +30,7 @@ def get_example_content(filename):
     return None
 
 
-def get_readme_content():
+def get_readme_content() -> str:
     """获取示例 README 内容"""
     readme_path = EXAMPLES_DIR / "README.md"
     if readme_path.exists():
@@ -38,7 +38,7 @@ def get_readme_content():
     return None
 
 
-def list_examples():
+def list_examples() -> None:
     """列出所有可用的示例文件"""
     examples = []
     for file_path in get_example_files():
@@ -50,7 +50,7 @@ def list_examples():
     return examples
 
 
-def _get_example_description(file_path):
+def _get_example_description(file_path: Path) -> str:
     """从文件内容中提取描述"""
     try:
         content = file_path.read_text(encoding='utf-8')

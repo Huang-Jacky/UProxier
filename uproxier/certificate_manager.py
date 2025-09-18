@@ -28,7 +28,7 @@ class CertificateManager:
         self.ca_combined_pem_path = self.cert_dir / "mitmproxy-ca.pem"
         self.ca_cert_der_path = self.cert_dir / "mitmproxy-ca-cert.der"
 
-    def ensure_certificates(self):
+    def ensure_certificates(self) -> None:
         """确保证书存在，如果不存在则生成或迁移"""
         try:
             self.cert_dir.mkdir(exist_ok=True)
@@ -106,7 +106,7 @@ class CertificateManager:
                 logger.warning(f"证书迁移失败: {e}")
             return False
 
-    def generate_ca_certificate(self):
+    def generate_ca_certificate(self) -> None:
         """生成 CA 证书（优先使用 OpenSSL，避免 mitmproxy 内部 API 兼容性问题）"""
         try:
             self.generate_ca_certificate_with_openssl()
@@ -142,7 +142,7 @@ class CertificateManager:
                     logger.error(f"生成 CA 证书失败(兜底也失败): {e2}")
                 raise
 
-    def generate_ca_certificate_with_openssl(self):
+    def generate_ca_certificate_with_openssl(self) -> None:
         """使用 OpenSSL 生成 CA 证书（备用方法）"""
         try:
             # 1) 生成私钥
@@ -195,7 +195,7 @@ class CertificateManager:
                 logger.error("未找到 OpenSSL，请安装 OpenSSL")
             raise
 
-    def convert_to_der(self):
+    def convert_to_der(self) -> None:
         """将 PEM 证书转换为 DER 格式"""
         try:
             subprocess.run([
@@ -222,7 +222,7 @@ class CertificateManager:
             return None
         return None
 
-    def _force_sync_if_mismatch(self):
+    def _force_sync_if_mismatch(self) -> None:
         """若检测到 PEM vs DER 指纹不一致，强制从 PEM 重建 DER。"""
         try:
             if not self.ca_cert_path.exists():
@@ -236,7 +236,7 @@ class CertificateManager:
             if not self.silent:
                 logger.warning(f"指纹自检/修复失败: {e}")
 
-    def _write_combined_pem(self):
+    def _write_combined_pem(self) -> None:
         """生成 mitmproxy 习惯的合并 PEM（证书在前，私钥在后），方便其读取。"""
         try:
             if self.ca_cert_path.exists() and self.ca_key_path.exists():
@@ -247,7 +247,7 @@ class CertificateManager:
             if not self.silent:
                 logger.warning(f"写入合并 PEM 失败: {e}")
 
-    def _cleanup_extra_artifacts(self):
+    def _cleanup_extra_artifacts(self) -> None:
         """删除非预期文件"""
         try:
             keep = {
@@ -273,7 +273,7 @@ class CertificateManager:
             if not self.silent:
                 logger.warning(f"清理多余证书产物失败: {e}")
 
-    def verify_certificate(self):
+    def verify_certificate(self) -> None:
         """验证证书有效性"""
         try:
             with open(self.ca_cert_path, 'r') as f:
@@ -309,7 +309,7 @@ class CertificateManager:
         except Exception as e:
             return {"error": str(e)}
 
-    def install_certificate(self, system: str = "auto"):
+    def install_certificate(self, system: str = "auto") -> None:
         """安装证书到系统"""
         if system == "auto":
             system = self.detect_system()
@@ -340,7 +340,7 @@ class CertificateManager:
         else:
             return "unknown"
 
-    def install_certificate_macos(self):
+    def install_certificate_macos(self) -> None:
         """在 macOS 上安装证书"""
         try:
             # 复制证书到系统证书目录
@@ -362,7 +362,7 @@ class CertificateManager:
                 logger.error(f"macOS 证书安装失败: {e}")
             raise
 
-    def install_certificate_windows(self):
+    def install_certificate_windows(self) -> None:
         """在 Windows 上安装证书"""
         try:
             # 使用 certutil 安装证书
@@ -378,7 +378,7 @@ class CertificateManager:
                 logger.error(f"Windows 证书安装失败: {e}")
             raise
 
-    def install_certificate_linux(self):
+    def install_certificate_linux(self) -> None:
         """在 Linux 上安装证书"""
         try:
             # 复制证书到系统证书目录
@@ -451,7 +451,7 @@ certutil -addstore -f ROOT {self.ca_cert_path}
 
         return instructions.get(system, instructions["unknown"])
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """清理证书文件"""
         try:
             if self.ca_cert_path.exists():

@@ -43,12 +43,12 @@ class WebInterface:
         # 注册路由
         self.register_routes()
 
-    def register_routes(self):
+    def register_routes(self) -> None:
         """注册 Flask 路由"""
 
         # 静态文件路由 - 提供包内的静态资源
         @self.app.route('/assets/<path:filename>')
-        def static_files(filename):
+        def static_files(filename: str):
             """提供包内静态文件服务"""
             from importlib.resources import files as _files
             from flask import Response
@@ -311,7 +311,7 @@ class WebInterface:
                 return jsonify({'message': f'清空失败: {str(e)}', 'success': False}), 500
 
         @self.app.route('/api/request/<int:request_id>')
-        def get_request_detail(request_id):
+        def get_request_detail(request_id: int):
             """获取请求详情"""
             for req in self.traffic_data:
                 if req.get('id') == request_id:
@@ -516,7 +516,7 @@ class WebInterface:
             }
         }
 
-    def start(self, port: int = 8081, host: str = "0.0.0.0", silent: bool = False):
+    def start(self, port: int = 8081, host: str = "0.0.0.0", silent: bool = False) -> None:
         """启动 Web 界面"""
         if self.is_running:
             return
@@ -566,6 +566,6 @@ class WebInterface:
                 pass
             logger.info(f"Web 界面已启动: http://{display_host}:{port}")
 
-    def stop(self):
+    def stop(self) -> None:
         """停止 Web 界面"""
         self.is_running = False

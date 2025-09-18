@@ -206,7 +206,7 @@ class RulesEngine:
 
         self.load_rules()
 
-    def load_rules(self):
+    def load_rules(self) -> None:
         """从配置文件加载规则，支持继承"""
         try:
             config_path = Path(self.config_path)
@@ -259,7 +259,7 @@ class RulesEngine:
                 logger.error(f"加载规则失败: {e}")
             self.rules = []
 
-    def create_default_config(self):
+    def create_default_config(self) -> None:
         """创建默认配置文件"""
         default_config = {
             'capture': {

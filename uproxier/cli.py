@@ -34,14 +34,14 @@ except Exception:
     warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"mitmproxy\.certs")
 
 
-def get_pid_file():
+def get_pid_file() -> Path:
     """获取 PID 文件路径"""
     pid_dir = Path.home() / '.uproxier'
     pid_dir.mkdir(exist_ok=True)
     return pid_dir / 'uproxier.pid'
 
 
-def save_pid(pid: int):
+def save_pid(pid: int) -> bool:
     """保存 PID 到文件"""
     pid_file = get_pid_file()
     try:
@@ -52,7 +52,7 @@ def save_pid(pid: int):
         return False
 
 
-def load_pid():
+def load_pid() -> Optional[int]:
     """从文件读取 PID"""
     pid_file = get_pid_file()
     try:
@@ -64,7 +64,7 @@ def load_pid():
     return None
 
 
-def is_process_running(pid: int):
+def is_process_running(pid: int) -> bool:
     """检查进程是否在运行"""
     try:
         os.kill(pid, 0)
@@ -73,7 +73,7 @@ def is_process_running(pid: int):
         return False
 
 
-def cleanup_pid_file():
+def cleanup_pid_file() -> None:
     """清理 PID 文件"""
     pid_file = get_pid_file()
     try:
@@ -83,7 +83,7 @@ def cleanup_pid_file():
         pass
 
 
-def is_service_ready(host, port, timeout=1):
+def is_service_ready(host: str, port: int, timeout: int = 1) -> bool:
     """检查服务是否真正就绪"""
     try:
         import socket
@@ -99,7 +99,7 @@ def is_service_ready(host, port, timeout=1):
 @click.group()
 @click.option('--verbose', '-v', is_flag=True, help='详细输出')
 @click.version_option(version=get_version(), prog_name='UProxier')
-def cli(verbose: bool):
+def cli(verbose: bool) -> None:
     """代理服务器命令行工具"""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -339,7 +339,7 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
 
 @cli.command()
 @click.option('--config', default=None, help='配置文件路径')
-def init(config: str):
+def init(config: str) -> None:
     """初始化代理服务器配置"""
     console.print(Panel.fit(
         "[bold blue]初始化代理服务器配置[/bold blue]\n"
@@ -365,7 +365,7 @@ def init(config: str):
 
 
 @cli.command()
-def cert():
+def cert() -> None:
     """证书管理"""
     cert_manager = CertificateManager()
 
@@ -421,7 +421,7 @@ def cert():
 
 
 @cli.command()
-def stop():
+def stop() -> None:
     """停止后台运行的服务器"""
     pid = load_pid()
     if not pid:
@@ -464,7 +464,7 @@ def stop():
 
 
 @cli.command()
-def status():
+def status() -> None:
     """查看服务器状态"""
     pid = load_pid()
     if not pid:
@@ -481,7 +481,7 @@ def status():
 
 
 @cli.command()
-def info():
+def info() -> None:
     """显示版本信息"""
     console.print(Panel.fit(
         f"[bold blue]UProxier[/bold blue]\n"
@@ -498,7 +498,7 @@ def info():
 @click.option('--show', '-s', 'example_name', help='显示指定示例的内容')
 @click.option('--copy', '-c', 'copy_example', help='复制指定示例到当前目录')
 @click.option('--readme', is_flag=True, help='显示示例说明文档')
-def examples(list_examples, example_name, copy_example, readme):
+def examples(list_examples: bool, example_name: Optional[str], copy_example: Optional[str], readme: bool) -> None:
     """管理规则示例"""
     try:
         from .examples import list_examples as get_examples, get_example_content, get_readme_content

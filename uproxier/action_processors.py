@@ -275,7 +275,7 @@ class SetBodyParamProcessor(ActionProcessor):
                 except Exception:
                     obj = {}
 
-                def _set_deep(container, key_path, value):
+                def _set_deep(container: Any, key_path: str, value: Any) -> None:
                     keys = str(key_path).split('.')
                     cur = container
                     for i, key in enumerate(keys):
@@ -301,7 +301,7 @@ class SetBodyParamProcessor(ActionProcessor):
                                     cur[key] = {}
                                 cur = cur[key]
 
-                def _apply_params_to(target):
+                def _apply_params_to(target: Any) -> None:
                     for k, v in (params or {}).items():
                         if isinstance(target, (dict, list)):
                             _set_deep(target, k, v)
@@ -370,7 +370,7 @@ class ReplaceBodyJsonProcessor(ActionProcessor):
             params = params or {}
             obj = json.loads(response.content.decode('utf-8', errors='ignore') or 'null')
 
-            def _set_deep(container, key_path, value):
+            def _set_deep(container: Any, key_path: str, value: Any) -> None:
                 keys = str(key_path).split('.')
                 current = container
                 for key in keys[:-1]:
@@ -620,7 +620,7 @@ class ActionProcessorManager:
         self.config_dir = config_dir
         self._register_default_processors()
 
-    def _register_default_processors(self):
+    def _register_default_processors(self) -> None:
         """注册默认的处理器"""
         self._processors.extend([
             SetHeaderProcessor(),
@@ -638,7 +638,7 @@ class ActionProcessorManager:
             ConditionalProcessor(self)
         ])
 
-    def register_processor(self, processor: ActionProcessor):
+    def register_processor(self, processor: ActionProcessor) -> None:
         """注册新的处理器"""
         self._processors.append(processor)
 
