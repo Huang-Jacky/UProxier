@@ -68,8 +68,7 @@ uproxier start \
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
   --config <path> \               # 配置文件路径
-  --save ./logs/traffic.jsonl \   # 保存请求数据到文件
-  --save-format jsonl \           # 保存格式
+  --save ./logs/traffic.jsonl \   # 保存请求数据到文件（JSONL格式）
   --enable-https \                # 启用 HTTPS 解密
   --disable-https \               # 禁用 HTTPS 解密
   --silent                        # 静默模式

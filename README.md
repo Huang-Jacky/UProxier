@@ -165,8 +165,7 @@ uproxier start \
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
   --config <path> \               # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
-  --save ./logs/traffic.jsonl \   # 保存请求数据到文件
-  --save-format jsonl \           # 保存格式
+  --save ./logs/traffic.jsonl \   # 保存请求数据到文件（JSONL格式）
   --enable-https \                # 启用 HTTPS 解密（覆盖配置）
   --disable-https \               # 禁用 HTTPS 解密（覆盖配置）
   --silent                        # 静默模式，不输出任何信息
@@ -177,8 +176,7 @@ python3 cli.py start \
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
   --config <path> \               # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
-  --save ./logs/traffic.jsonl \   # 保存请求数据到文件
-  --save-format jsonl \           # 保存格式
+  --save ./logs/traffic.jsonl \   # 保存请求数据到文件（JSONL格式）
   --enable-https \                # 启用 HTTPS 解密（覆盖配置）
   --disable-https \               # 禁用 HTTPS 解密（覆盖配置）
   --silent                        # 静默模式，不输出任何信息

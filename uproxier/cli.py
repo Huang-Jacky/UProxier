@@ -113,11 +113,10 @@ def cli(verbose: bool) -> None:
 @click.option('--web-port', default=8002, help='Web 界面端口')
 @click.option('--config', default=None, help='配置文件路径')
 @click.option('--save', 'save_path', default=None, help='保存请求数据到文件（jsonl）')
-@click.option('--save-format', type=click.Choice(['jsonl']), default='jsonl', help='保存格式')
 @click.option('--enable-https/--disable-https', 'https_flag', default=None, help='启用/禁用 HTTPS 解密（覆盖配置）')
 @click.option('--silent', '-s', is_flag=True, help='静默模式，不输出任何信息')
 @click.option('--daemon', '-d', is_flag=True, help='后台模式启动')
-def start(port: int, web_port: int, config: str, save_path: Optional[str], save_format: str,
+def start(port: int, web_port: int, config: str, save_path: Optional[str],
           https_flag: Optional[bool], silent: bool, daemon: bool):
     """启动代理服务器"""
     if silent:
@@ -226,7 +225,7 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
             cmd.extend(['--config', config])
 
         if save_path:
-            cmd.extend(['--save', save_path, '--save-format', save_format])
+            cmd.extend(['--save', save_path])
 
         if https_flag is not None:
             if https_flag:
@@ -308,7 +307,7 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str], save_
     else:
         try:
             config_path = config or default_config_path()
-            proxy = ProxyServer(config_path, save_path=save_path, save_format=save_format, silent=silent,
+            proxy = ProxyServer(config_path, save_path=save_path, silent=silent,
                                 enable_https=https_flag)
             proxy.start(port, web_port)
         except KeyboardInterrupt:

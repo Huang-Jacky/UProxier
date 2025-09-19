@@ -29,13 +29,12 @@ class ProxyAddon:
     """代理服务器插件，处理请求和响应"""
 
     def __init__(self, rules_engine: RulesEngine, web_interface: WebInterface, save_path: Optional[str] = None,
-                 save_format: str = 'jsonl', silent: bool = False, config_path: Optional[str] = None):
+                 silent: bool = False, config_path: Optional[str] = None):
         self.rules_engine = rules_engine
         self.web_interface = web_interface
         self.silent = silent
         self.request_count = 0
         self.traffic_data = []
-        self.save_format = save_format
         self.save_path = None
         self.internal_targets = set()
         self.internal_web_ports = set()
@@ -643,9 +642,8 @@ class ProxyAddon:
         if not record or not self.save_path:
             return
         try:
-            if self.save_format == 'jsonl':
-                with open(self.save_path, 'a', encoding='utf-8') as f:
-                    f.write(json.dumps(record, ensure_ascii=False) + '\n')
+            with open(self.save_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(record, ensure_ascii=False) + '\n')
         except Exception as e:
             logger.error(f"保存请求数据失败: {e}")
 
@@ -653,11 +651,10 @@ class ProxyAddon:
 class ProxyServer:
     """代理服务器主类"""
 
-    def __init__(self, config_path: str = None, save_path: Optional[str] = None, save_format: str = 'jsonl',
+    def __init__(self, config_path: str = None, save_path: Optional[str] = None,
                  silent: bool = False, enable_https: Optional[bool] = None):
         self.config_path = config_path or default_config_path()
         self.save_path = save_path
-        self.save_format = save_format
         self.silent = silent
         self.enable_https_override = enable_https
         self.rules_engine = RulesEngine(self.config_path, silent=self.silent)
@@ -667,7 +664,6 @@ class ProxyServer:
             self.rules_engine,
             self.web_interface,
             save_path=save_path,
-            save_format=save_format,
             silent=self.silent,
             config_path=self.config_path
         )
@@ -891,7 +887,7 @@ class ProxyServer:
                "--web-port", str(web_port), "--config", self.config_path, "--silent"]
 
         if self.save_path:
-            cmd.extend(["--save", self.save_path, "--save-format", self.save_format])
+            cmd.extend(["--save", self.save_path])
 
         if self.enable_https_override is not None:
             if self.enable_https_override:
