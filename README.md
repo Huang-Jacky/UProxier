@@ -291,13 +291,9 @@ capture:
   large_file_threshold: 1048576  # 1MB
   # 是否保存二进制内容（默认关闭）
   save_binary_content: false
+  # 是否启用 HTTPS 解密（默认启用，可被 CLI 参数覆盖）
+  enable_https: true
 
-# 代理配置
-proxy:
-  host: 0.0.0.0
-  port: 8001
-  web_port: 8002
-  enable_https: true  # 开/关 HTTPS 解密（可被 CLI 覆盖）
 ```
 
 #### 抓取过滤（include / exclude）
