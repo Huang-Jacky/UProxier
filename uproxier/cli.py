@@ -23,6 +23,7 @@ from .proxy_server import ProxyServer
 from .rules_engine import RulesEngine, default_config_path
 from .version import get_version, get_author
 from .exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
+from .config_validator import ConfigValidator, ConfigAnalyzer
 
 console = Console()
 
@@ -563,6 +564,45 @@ def examples(list_examples: bool, example_name: Optional[str], copy_example: Opt
         console.print("[red]示例模块未找到，请检查安装[/red]")
     except Exception as e:
         console.print(f"[red]操作失败: {e}[/red]")
+
+
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
+@click.option('--format', 'output_format', type=click.Choice(['text', 'json']), default='text', help='输出格式')
+@click.option('--output', type=click.Path(), help='输出文件路径（可选）')
+@click.option('--validate-only', is_flag=True, help='只进行验证，不生成完整报告')
+def validate(config_file: str, output_format: str, output: Optional[str], validate_only: bool) -> None:
+    """验证和分析配置文件"""
+    try:
+        analyzer = ConfigAnalyzer(config_file)
+        
+        if validate_only:
+            # 只进行验证
+            if analyzer.is_valid():
+                console.print("[green]✅ 配置验证通过[/green]")
+            else:
+                console.print("[red]❌ 配置验证失败[/red]")
+                for error in analyzer.get_validation_errors():
+                    console.print(f"[red]  ❌ {error}[/red]")
+                for warning in analyzer.get_validation_warnings():
+                    console.print(f"[yellow]  ⚠️  {warning}[/yellow]")
+        else:
+            # 生成完整报告
+            report = analyzer.generate_report(output_format)
+            
+            if output:
+                with open(output, 'w', encoding='utf-8') as f:
+                    f.write(report)
+                console.print(f"[green]报告已保存到: {output}[/green]")
+            else:
+                if output_format == 'json':
+                    console.print_json(report)
+                else:
+                    console.print(report)
+                    
+    except Exception as e:
+        console.print(f"[red]验证失败: {e}[/red]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

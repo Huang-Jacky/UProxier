@@ -13,9 +13,10 @@
     - 配置继承（extends）支持，相对路径自动解析
 - 💾 **持久化**: 可将抓到的请求以 JSONL 持久化（--save，覆盖模式）
 - 🌐 **Web 界面**: 实时流量、点击行查看详情、搜索、清空，完全离线化
-- 🎯 **CLI 工具**: start/init/cert/version/examples & 静默模式（--silent）
+- 🎯 **CLI 工具**: start/init/cert/version/examples/validate & 静默模式（--silent）
 - 📊 **抓包控制**: 流媒体/大文件开关、阈值与二进制保存控制（通过 config.yaml 配置）
 - 🔧 **配置管理**: 统一配置目录（~/.uproxier/），YAML 配置 + CLI 覆盖
+- ✅ **配置验证**: 完整的配置验证系统，检查语法、类型、文件存在性等
 
 ## 安装
 
@@ -131,6 +132,7 @@ uproxier examples --help   # 查看示例管理命令的所有参数
 uproxier cert --help       # 查看证书管理命令的所有参数
 uproxier init --help       # 查看初始化命令的所有参数
 uproxier info --help       # 查看版本信息命令的所有参数
+uproxier validate --help   # 查看配置验证命令的所有参数
 
 # 从源码运行
 python3 cli.py --help
@@ -139,6 +141,7 @@ python3 cli.py examples --help   # 查看示例管理命令的所有参数
 python3 cli.py cert --help       # 查看证书管理命令的所有参数
 python3 cli.py init --help       # 查看初始化命令的所有参数
 python3 cli.py info --help       # 查看版本信息命令的所有参数
+python3 cli.py validate --help   # 查看配置验证命令的所有参数
 ```
 
 #### 全局选项
@@ -223,6 +226,22 @@ uproxier info               # 显示版本信息
 
 # 从源码运行
 python3 cli.py info               # 显示版本信息
+```
+
+**配置验证**
+
+```bash
+# 从 PyPI 安装后使用
+uproxier validate <config_file>                    # 验证配置文件
+uproxier validate <config_file> --validate-only    # 只进行验证，不生成完整报告
+uproxier validate <config_file> --format json      # 输出 JSON 格式报告
+uproxier validate <config_file> --output report.txt # 保存报告到文件
+
+# 从源码运行
+python3 cli.py validate <config_file>                    # 验证配置文件
+python3 cli.py validate <config_file> --validate-only    # 只进行验证，不生成完整报告
+python3 cli.py validate <config_file> --format json      # 输出 JSON 格式报告
+python3 cli.py validate <config_file> --output report.txt # 保存报告到文件
 ```
 
 **规则示例管理**
