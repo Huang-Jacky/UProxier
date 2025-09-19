@@ -271,7 +271,7 @@ UProxier 提供了完整的 Python API，支持阻塞和非阻塞两种启动方
 from uproxier.proxy_server import ProxyServer
 
 proxy = ProxyServer("config.yaml")
-proxy.start("0.0.0.0", 8001, 8002)  # 阻塞启动
+proxy.start(8001, 8002)  # 阻塞启动，监听 0.0.0.0:8001
 ```
 
 **异步启动**：
@@ -279,9 +279,17 @@ proxy.start("0.0.0.0", 8001, 8002)  # 阻塞启动
 from uproxier.proxy_server import ProxyServer
 
 proxy = ProxyServer("config.yaml", silent=True)
-proxy.start_async("0.0.0.0", 8001, 8002)  # 非阻塞启动
+proxy.start_async(8001, 8002)  # 非阻塞启动，监听 0.0.0.0:8001
 # 继续执行其他代码...
 proxy.stop()
+```
+
+**保存请求数据**：
+```python
+from uproxier.proxy_server import ProxyServer
+
+proxy = ProxyServer("config.yaml", save_path="requests.jsonl")
+proxy.start(8001, 8002)  # 同时保存请求数据到文件
 ```
 
 ### 详细文档
@@ -653,7 +661,7 @@ python3 cli.py examples --copy 01_set_header.yaml
 - 📋 请求/响应详情
 - 🔍 流量搜索
 - 📈 性能分析
-- 💾 数据导出（/api/export?format=json|jsonl|csv&limit=1000）
+- 💾 数据导出（/api/export?limit=1000）
 
 ## 证书管理
 
