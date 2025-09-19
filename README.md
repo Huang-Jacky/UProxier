@@ -661,7 +661,7 @@ python3 cli.py examples --copy 01_set_header.yaml
 - 📋 请求/响应详情
 - 🔍 流量搜索
 - 📈 性能分析
-- 💾 数据导出（/api/export?limit=1000）
+- 💾 数据导出（/api/export?format=json|jsonl|csv&limit=1000）
 
 ## 证书管理
 
