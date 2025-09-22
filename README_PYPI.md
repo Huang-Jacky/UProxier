@@ -4,16 +4,19 @@
 
 ## 功能特性
 
-- 🔄 **HTTP/HTTPS 代理**: 完整代理，支持 HTTPS 解密开关
+- 🔄 **HTTP/HTTPS 代理**: 完整代理，支持 HTTPS 解密开关（配置或 CLI 覆盖）
 - 🛡️ **证书管理**: 自动生成/校验/安装 mitmproxy CA 证书
-- 📋 **规则引擎**: 多动作叠加、优先级、命中短路
-    - mock_response / modify_headers / modify_content / redirect
-    - delay_response / conditional_response
-- 💾 **持久化**: 可将抓到的请求以 JSONL 持久化
-- 🌐 **Web 界面**: 实时流量、点击行查看详情、搜索、清空
-- 🎯 **CLI 工具**: start/init/cert/version/examples & 静默模式
-- 📊 **抓包控制**: 流媒体/大文件开关、阈值与二进制保存控制
-- 🔧 **配置管理**: YAML 配置 + CLI 覆盖
+- 📋 **规则引擎**: 多动作叠加、优先级、命中短路（stop_after_match）
+    - mock_response（支持本地文件 file）/ modify_headers / modify_content / redirect
+    - modify_response_headers / modify_response_content / modify_status
+    - delay_response（真实延迟发送）/ conditional_response（条件分支）
+    - 配置继承（extends）支持，相对路径自动解析
+- 💾 **持久化**: 可将抓到的请求以 JSONL 持久化（--save，覆盖模式）
+- 🌐 **Web 界面**: 实时流量、点击行查看详情、搜索、清空，完全离线化
+- 🎯 **CLI 工具**: start/init/cert/version/examples/validate & 静默模式（--silent）
+- 📊 **抓包控制**: 流媒体/大文件开关、阈值与二进制保存控制（通过 config.yaml 配置）
+- 🔧 **配置管理**: 统一配置目录（~/.uproxier/），YAML 配置 + CLI 覆盖
+- ✅ **配置验证**: 完整的配置验证系统，检查语法、类型、文件存在性等
 
 ## 安装
 
@@ -34,11 +37,11 @@ pip install uproxier
 uproxier start
 ```
 
-首次启动会自动在用户目录生成 `~/.uproxier/` CA 证书。
+首次启动会自动在用户目录生成 `~/.uproxier/certificates/` CA 证书；启动面板将显示证书路径与有效期。
 
 ### 2. 安装证书
 
-**Web 界面下载**：打开 Web 界面右上角"扫码下载证书"，移动设备用浏览器访问下载链接安装。
+**Web 界面下载**：打开 Web 界面右上角"扫码下载证书"，移动设备用浏览器访问下载链接安装（下载的是 DER 格式，文件名为 `uproxier-ca.cer`）。
 
 **命令行安装**：
 
@@ -49,14 +52,31 @@ uproxier cert
 
 ### 3. 配置代理
 
-在浏览器/设备中配置代理设置：
-
-- 代理地址: `<本机IP>`
-- 端口: `8001`
+在需要抓包的设备/浏览器里设置 HTTP(S) 代理为本机 IP 与启动端口。
 
 ## 使用说明
 
 ### 命令行工具
+
+#### 帮助信息
+
+```bash
+uproxier --help
+uproxier start --help      # 查看启动命令的所有参数
+uproxier examples --help   # 查看示例管理命令的所有参数
+uproxier cert --help       # 查看证书管理命令的所有参数
+uproxier init --help       # 查看初始化命令的所有参数
+uproxier info --help       # 查看版本信息命令的所有参数
+uproxier validate --help   # 查看配置验证命令的所有参数
+```
+
+#### 全局选项
+
+```bash
+uproxier --verbose          # 详细输出
+uproxier --config <path>    # 指定配置文件路径
+uproxier --version          # 显示版本信息
+```
 
 #### 主要命令
 
@@ -64,14 +84,13 @@ uproxier cert
 
 ```bash
 uproxier start \
-  --host 0.0.0.0 \                # 代理服务器监听地址
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
-  --config <path> \               # 配置文件路径
+  --config <path> \               # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
   --save ./logs/traffic.jsonl \   # 保存请求数据到文件（JSONL格式）
-  --enable-https \                # 启用 HTTPS 解密
-  --disable-https \               # 禁用 HTTPS 解密
-  --silent                        # 静默模式
+  --enable-https \                # 启用 HTTPS 解密（覆盖配置）
+  --disable-https \               # 禁用 HTTPS 解密（覆盖配置）
+  --silent                        # 静默模式，不输出任何信息
   --daemon                        # 后台模式启动
 ```
 
@@ -84,25 +103,38 @@ uproxier cert                     # 管理证书（生成、安装、清理）
 **服务器控制**
 
 ```bash
-uproxier status                   # 查看服务器状态
-uproxier stop                     # 停止后台运行的服务器
+uproxier status             # 查看服务器状态
+uproxier stop               # 停止后台运行的服务器
+```
+
+**初始化配置**
+
+```bash
+uproxier init --config <path>                 # 指定配置文件路径
+```
+
+**版本信息**
+
+```bash
+uproxier info               # 显示版本信息
+```
+
+**配置验证**
+
+```bash
+uproxier validate <config_file>                    # 验证配置文件
+uproxier validate <config_file> --validate-only    # 只进行验证，不生成完整报告
+uproxier validate <config_file> --format json      # 输出 JSON 格式报告
+uproxier validate <config_file> --output report.txt # 保存报告到文件
 ```
 
 **规则示例管理**
 
 ```bash
-uproxier examples --list          # 列出所有可用示例
-uproxier examples --readme        # 显示示例说明文档
-uproxier examples --show <文件名> # 显示指定示例内容
-uproxier examples --copy <文件名> # 复制示例到当前目录
-```
-
-**其他命令**
-
-```bash
-uproxier --verbose                # 详细输出
-uproxier --version                # 显示版本信息
-uproxier --help                   # 显示帮助信息
+uproxier examples --list                    # 列出所有可用示例
+uproxier examples --readme                  # 显示示例说明文档
+uproxier examples --show <文件名>           # 显示指定示例内容
+uproxier examples --copy <文件名>           # 复制示例到当前目录
 ```
 
 ## API 使用
