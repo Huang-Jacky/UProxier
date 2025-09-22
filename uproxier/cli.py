@@ -25,6 +25,7 @@ from uproxier.version import get_version, get_author
 from uproxier.exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
 from uproxier.config_validator import ConfigValidator, ConfigAnalyzer
 from uproxier.network_utils import get_display_host
+from uproxier.examples import list_examples as get_examples, get_example_content, get_readme_content
 console = Console()
 
 try:
@@ -493,8 +494,6 @@ def info() -> None:
 def examples(list_examples: bool, example_name: Optional[str], copy_example: Optional[str], readme: bool) -> None:
     """管理规则示例"""
     try:
-        from .examples import list_examples as get_examples, get_example_content, get_readme_content
-
         if readme:
             readme_content = get_readme_content()
             if readme_content:

@@ -8,6 +8,7 @@ UProxier 规则示例模块
 """
 
 from pathlib import Path
+from typing import List
 
 # 获取示例文件目录
 EXAMPLES_DIR = Path(__file__).parent
