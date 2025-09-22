@@ -18,6 +18,7 @@ from uproxier.certificate_manager import CertificateManager
 from uproxier.exceptions import ProxyStartupError
 from uproxier.rules_engine import RulesEngine, default_config_path
 from uproxier.web_interface import WebInterface
+from uproxier.network_utils import get_display_host
 
 logger = logging.getLogger(__name__)
 
@@ -975,18 +976,8 @@ class ProxyServer:
         logger.info("代理服务器已停止")
 
     def _prefer_lan_host(self, bind_host: str) -> str:
-        """当绑定 DEFAULT_HOST/:: 时优先返回局域网 IP，否则返回原 host。失败回退 127.0.0.1。"""
-        try:
-            if bind_host in (DEFAULT_HOST, "::"):
-                import socket
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                lan = s.getsockname()[0]
-                s.close()
-                return lan or "127.0.0.1"
-            return bind_host
-        except Exception:
-            return "127.0.0.1"
+        """优先返回局域网 IP，失败回退 127.0.0.1"""
+        return get_display_host(bind_host, "127.0.0.1")
 
     def get_stats(self) -> Dict[str, Any]:
         """获取代理服务器统计信息"""

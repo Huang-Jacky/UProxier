@@ -15,6 +15,7 @@ from flask import stream_with_context
 from flask_cors import CORS
 
 from uproxier.version import get_version, get_author
+from uproxier.network_utils import get_local_ip, get_display_host
 
 logger = logging.getLogger(__name__)
 
@@ -360,14 +361,7 @@ class WebInterface:
                     bases.add(f"{scheme}://{req_host}")
 
                 # 获取首选局域网 IP
-                lan_ip = None
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    lan_ip = s.getsockname()[0]
-                    s.close()
-                except Exception:
-                    pass
+                lan_ip = get_local_ip()
                 if lan_ip:
                     if req_port:
                         bases.add(f"{scheme}://{lan_ip}:{req_port}")
@@ -554,16 +548,7 @@ class WebInterface:
         self.is_running = True
 
         if not silent:
-            display_host = host
-            try:
-                if host in ("0.0.0.0", "::"):
-                    import socket
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    display_host = s.getsockname()[0]
-                    s.close()
-            except Exception:
-                pass
+            display_host = get_display_host(host)
             logger.info(f"Web 界面已启动: http://{display_host}:{port}")
 
     def stop(self) -> None:

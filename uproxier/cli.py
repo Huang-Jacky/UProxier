@@ -24,7 +24,7 @@ from uproxier.rules_engine import RulesEngine, default_config_path
 from uproxier.version import get_version, get_author
 from uproxier.exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
 from uproxier.config_validator import ConfigValidator, ConfigAnalyzer
-
+from uproxier.network_utils import get_display_host
 console = Console()
 
 try:
@@ -135,15 +135,7 @@ def start(port: int, web_port: int, config: str, save_path: Optional[str],
         os.environ['FLASK_DEBUG'] = '0'
 
     host = '0.0.0.0'  # 固定监听所有网络接口
-    display_host = host
-    try:
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('8.8.8.8', 80))
-        display_host = s.getsockname()[0]
-        s.close()
-    except Exception:
-        display_host = '0.0.0.0'
+    display_host = get_display_host(host)
 
     if not silent:
         # 准备证书信息的文本行
