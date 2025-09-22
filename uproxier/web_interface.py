@@ -14,7 +14,7 @@ from flask import Response
 from flask import stream_with_context
 from flask_cors import CORS
 
-from .version import get_version, get_author
+from uproxier.version import get_version, get_author
 
 logger = logging.getLogger(__name__)
 

@@ -11,10 +11,8 @@ from typing import Dict, List, Optional, Any, DefaultDict
 import yaml
 from mitmproxy import http
 
-from .action_processors import ActionProcessorManager
-from .exceptions import (
-    ConfigInheritanceError, RuleValidationError
-)
+from uproxier.action_processors import ActionProcessorManager
+from uproxier.exceptions import ConfigInheritanceError, RuleValidationError
 
 logger = logging.getLogger(__name__)
 

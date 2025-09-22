@@ -18,12 +18,12 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from .certificate_manager import CertificateManager
-from .proxy_server import ProxyServer
-from .rules_engine import RulesEngine, default_config_path
-from .version import get_version, get_author
-from .exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
-from .config_validator import ConfigValidator, ConfigAnalyzer
+from uproxier.certificate_manager import CertificateManager
+from uproxier.proxy_server import ProxyServer
+from uproxier.rules_engine import RulesEngine, default_config_path
+from uproxier.version import get_version, get_author
+from uproxier.exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
+from uproxier.config_validator import ConfigValidator, ConfigAnalyzer
 
 console = Console()
 

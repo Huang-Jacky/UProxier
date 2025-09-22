@@ -14,10 +14,10 @@ from mitmproxy import http
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
 
-from .certificate_manager import CertificateManager
-from .exceptions import ProxyStartupError
-from .rules_engine import RulesEngine, default_config_path
-from .web_interface import WebInterface
+from uproxier.certificate_manager import CertificateManager
+from uproxier.exceptions import ProxyStartupError
+from uproxier.rules_engine import RulesEngine, default_config_path
+from uproxier.web_interface import WebInterface
 
 logger = logging.getLogger(__name__)
 

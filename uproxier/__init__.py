@@ -1,1 +1,3 @@
-# Marker package for UProxier core
+"""
+UProxier - HTTP/HTTPS proxy with rules engine and web UI
+"""
