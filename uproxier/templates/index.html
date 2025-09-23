@@ -128,6 +128,7 @@
         }
 
         .clickable-row {
+            height: 30px;
             cursor: pointer;
             transition: all 0.2s ease;
         }
@@ -137,9 +138,19 @@
         }
 
         .clickable-row td {
+            height: 30px;
+            vertical-align: middle;
             transition: all 0.2s ease;
             border: none;
             padding: 0.75rem;
+        }
+
+        .clickable-row td.url-cell {
+            max-width: 300px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            word-break: break-all;
         }
 
         /* 按钮样式 */
@@ -431,6 +442,28 @@
             font-weight: 600;
         }
 
+        .resource-type-badge {
+            font-size: 0.7rem;
+            border-radius: 6px;
+            font-weight: 500;
+            padding: 2px 6px;
+            margin-left: 4px;
+        }
+
+        .resource-type-badge.html { background-color: #e3f2fd; color: #1976d2; }
+        .resource-type-badge.css { background-color: #f3e5f5; color: #7b1fa2; }
+        .resource-type-badge.js { background-color: #fff3e0; color: #f57c00; }
+        .resource-type-badge.json { background-color: #e8f5e8; color: #388e3c; }
+        .resource-type-badge.image { background-color: #fce4ec; color: #c2185b; }
+        .resource-type-badge.video { background-color: #e1f5fe; color: #0277bd; }
+        .resource-type-badge.audio { background-color: #f3e5f5; color: #7b1fa2; }
+        .resource-type-badge.font { background-color: #f1f8e9; color: #689f38; }
+        .resource-type-badge.archive { background-color: #e8eaf6; color: #3f51b5; }
+        .resource-type-badge.document { background-color: #f3e5f5; color: #7b1fa2; }
+        .resource-type-badge.api { background-color: #fff8e1; color: #f9a825; }
+        .resource-type-badge.static { background-color: #e8f5e8; color: #388e3c; }
+        .resource-type-badge.other { background-color: #d0d0d0; color: #424242; }
+
         .modal-body {
             font-size: 0.9rem;
         }
@@ -614,6 +647,7 @@
                 <th>时间</th>
                 <th>方法</th>
                 <th>URL</th>
+                <th>类型</th>
                 <th>状态</th>
                 <th>响应时间</th>
             </tr>
@@ -716,6 +750,49 @@
     let currentRequestDetail = null;
     let isSearching = false;
     let searchQuery = '';
+
+    function getResourceType(url, content_type = null, method = 'GET') {
+        const path = url.split('?')[0].toLowerCase();
+        const extension = path.split('.').pop();
+        
+        if (content_type) {
+            if (content_type.includes('application/json')) return { type: 'api', label: 'API' };
+            if (content_type.includes('text/html')) return { type: 'html', label: 'HTML' };
+            if (content_type.includes('text/css')) return { type: 'css', label: 'CSS' };
+            if (content_type.includes('application/javascript') || content_type.includes('text/javascript')) return { type: 'js', label: 'JS' };
+            if (content_type.includes('image/')) return { type: 'image', label: 'IMG' };
+            if (content_type.includes('video/')) return { type: 'video', label: 'VIDEO' };
+            if (content_type.includes('audio/')) return { type: 'audio', label: 'AUDIO' };
+            if (content_type.includes('font/')) return { type: 'font', label: 'FONT' };
+        }
+        
+        if (extension === 'html' || extension === 'htm') return { type: 'html', label: 'HTML' };
+        if (extension === 'css') return { type: 'css', label: 'CSS' };
+        if (extension === 'js') return { type: 'js', label: 'JS' };
+        if (extension === 'json') return { type: 'json', label: 'JSON' };
+        if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'ico'].includes(extension)) return { type: 'image', label: 'IMG' };
+        if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', 'm4v'].includes(extension)) return { type: 'video', label: 'VIDEO' };
+        if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma'].includes(extension)) return { type: 'audio', label: 'AUDIO' };
+        if (['woff', 'woff2', 'ttf', 'eot', 'otf'].includes(extension)) return { type: 'font', label: 'FONT' };
+        if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(extension)) return { type: 'archive', label: 'ZIP' };
+        if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(extension)) return { type: 'document', label: 'DOC' };
+        
+        if (path.includes('api') || path.includes('rpc') || path.includes('graphql') || path.includes('rest')) {
+            return { type: 'api', label: 'API' };
+        }
+        
+        if (path.includes('/static/') || path.includes('/assets/') || path.includes('/public/') ||
+            path.includes('/css/') || path.includes('/js/') || path.includes('/images/') ||
+            path.includes('/img/') || path.includes('/media/')) {
+            return { type: 'static', label: 'STATIC' };
+        }
+        
+        if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+            return { type: 'api', label: 'API' };
+        }
+        
+        return { type: 'other', label: 'OTHER' };
+    }
     let certQRModalInstance = null;
 
     // 显示 Toast 通知
@@ -973,12 +1050,16 @@
 
             const responseTime = req.response_time ? `${(req.response_time * 1000).toFixed(0)}ms` : '--';
             const timestamp = new Date(req.timestamp).toLocaleTimeString();
+            
+            const resourceType = getResourceType(req.url, req.content_type, req.method, req.response_data);
+            console.log('Resource type for', req.url, ':', resourceType);
 
             row.innerHTML = `
                     <td>${req.id}</td>
                     <td>${timestamp}</td>
                     <td><span class="badge bg-secondary method-badge">${req.method}</span></td>
                     <td class="url-cell" title="${req.url}">${req.url}</td>
+                    <td><span class="resource-type-badge ${resourceType.type}">${resourceType.label}</span></td>
                     <td><span class="badge bg-${statusClass} status-badge">${statusText}</span></td>
                     <td>${responseTime}</td>
                 `;
