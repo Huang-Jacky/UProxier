@@ -75,13 +75,13 @@ pip install -r requirements.txt
 2. 启动代理（首次启动会自动在用户目录生成 `~/.uproxier/certificates/` CA 证书；启动面板将显示证书路径与有效期）
 
 ```bash
-python3 cli.py start
+python3 -m uproxier start
 ```
 
 3. 安装证书
 
 ```bash
-python3 cli.py cert
+python3 -m uproxier cert
 # 选择安装到系统，或按提示手动安装
 ```
 
@@ -97,7 +97,7 @@ python3 cli.py cert
 uproxier cert
 
 # 从源码运行
-python3 cli.py cert
+python3 -m uproxier cert
 # 选择安装到系统，或按提示手动安装
 ```
 
@@ -108,7 +108,7 @@ python3 cli.py cert
 首次启动会自动生成证书。若需要手动生成或安装证书，可使用：
 
 ```bash
-python3 cli.py cert
+python3 -m uproxier cert
 ```
 
 ### 2. 配置浏览器代理
@@ -135,13 +135,13 @@ uproxier info --help       # 查看版本信息命令的所有参数
 uproxier validate --help   # 查看配置验证命令的所有参数
 
 # 从源码运行
-python3 cli.py --help
-python3 cli.py start --help      # 查看启动命令的所有参数
-python3 cli.py examples --help   # 查看示例管理命令的所有参数
-python3 cli.py cert --help       # 查看证书管理命令的所有参数
-python3 cli.py init --help       # 查看初始化命令的所有参数
-python3 cli.py info --help       # 查看版本信息命令的所有参数
-python3 cli.py validate --help   # 查看配置验证命令的所有参数
+python3 -m uproxier --help
+python3 -m uproxier start --help      # 查看启动命令的所有参数
+python3 -m uproxier examples --help   # 查看示例管理命令的所有参数
+python3 -m uproxier cert --help       # 查看证书管理命令的所有参数
+python3 -m uproxier init --help       # 查看初始化命令的所有参数
+python3 -m uproxier info --help       # 查看版本信息命令的所有参数
+python3 -m uproxier validate --help   # 查看配置验证命令的所有参数
 ```
 
 #### 全局选项
@@ -153,9 +153,9 @@ uproxier --config <path>    # 指定配置文件路径
 uproxier --version          # 显示版本信息
 
 # 从源码运行
-python3 cli.py --verbose          # 详细输出
-python3 cli.py --config <path>    # 指定配置文件路径
-python3 cli.py --version          # 显示版本信息
+python3 -m uproxier --verbose          # 详细输出
+python3 -m uproxier --config <path>    # 指定配置文件路径
+python3 -m uproxier --version          # 显示版本信息
 ```
 
 #### 主要命令
@@ -175,7 +175,7 @@ uproxier start \
   --daemon                        # 后台模式启动
 
 # 从源码运行
-python3 cli.py start \
+python3 -m uproxier start \
   --port 8001 \                   # 代理服务器端口
   --web-port 8002 \               # Web 界面端口
   --config <path> \               # 配置文件路径（可选，默认使用 ~/.uproxier/config.yaml）
@@ -193,7 +193,7 @@ python3 cli.py start \
 uproxier cert               # 管理证书（生成、安装、清理）
 
 # 从源码运行
-python3 cli.py cert               # 管理证书（生成、安装、清理）
+python3 -m uproxier cert               # 管理证书（生成、安装、清理）
 ```
 
 **服务器控制**
@@ -204,8 +204,8 @@ uproxier status             # 查看服务器状态
 uproxier stop               # 停止后台运行的服务器
 
 # 从源码运行
-python3 cli.py status             # 查看服务器状态
-python3 cli.py stop               # 停止后台运行的服务器
+python3 -m uproxier status             # 查看服务器状态
+python3 -m uproxier stop               # 停止后台运行的服务器
 ```
 
 **初始化配置**
@@ -215,7 +215,7 @@ python3 cli.py stop               # 停止后台运行的服务器
 uproxier init --config <path>                 # 指定配置文件路径
 
 # 从源码运行
-python3 cli.py init --config <path>                 # 指定配置文件路径
+python3 -m uproxier init --config <path>                 # 指定配置文件路径
 ```
 
 **版本信息**
@@ -225,7 +225,7 @@ python3 cli.py init --config <path>                 # 指定配置文件路径
 uproxier info               # 显示版本信息
 
 # 从源码运行
-python3 cli.py info               # 显示版本信息
+python3 -m uproxier info               # 显示版本信息
 ```
 
 **配置验证**
@@ -238,10 +238,10 @@ uproxier validate <config_file> --format json      # 输出 JSON 格式报告
 uproxier validate <config_file> --output report.txt # 保存报告到文件
 
 # 从源码运行
-python3 cli.py validate <config_file>                    # 验证配置文件
-python3 cli.py validate <config_file> --validate-only    # 只进行验证，不生成完整报告
-python3 cli.py validate <config_file> --format json      # 输出 JSON 格式报告
-python3 cli.py validate <config_file> --output report.txt # 保存报告到文件
+python3 -m uproxier validate <config_file>                    # 验证配置文件
+python3 -m uproxier validate <config_file> --validate-only    # 只进行验证，不生成完整报告
+python3 -m uproxier validate <config_file> --format json      # 输出 JSON 格式报告
+python3 -m uproxier validate <config_file> --output report.txt # 保存报告到文件
 ```
 
 **规则示例管理**
@@ -254,10 +254,10 @@ uproxier examples --show <文件名>           # 显示指定示例内容
 uproxier examples --copy <文件名>           # 复制示例到当前目录
 
 # 从源码运行
-python3 cli.py examples --list                    # 列出所有可用示例
-python3 cli.py examples --readme                  # 显示示例说明文档
-python3 cli.py examples --show <文件名>           # 显示指定示例内容
-python3 cli.py examples --copy <文件名>           # 复制示例到当前目录
+python3 -m uproxier examples --list                    # 列出所有可用示例
+python3 -m uproxier examples --readme                  # 显示示例说明文档
+python3 -m uproxier examples --show <文件名>           # 显示指定示例内容
+python3 -m uproxier examples --copy <文件名>           # 复制示例到当前目录
 ```
 
 ## API 使用
@@ -494,13 +494,13 @@ uproxier examples --copy 01_set_header.yaml
 
 # 从源码运行
 # 查看所有可用示例
-python3 cli.py examples --list
+python3 -m uproxier examples --list
 
 # 查看示例说明文档
-python3 cli.py examples --readme
+python3 -m uproxier examples --readme
 
 # 复制示例到当前目录进行修改
-python3 cli.py examples --copy 01_set_header.yaml
+python3 -m uproxier examples --copy 01_set_header.yaml
 ```
 
 示例文件包括：
@@ -673,7 +673,7 @@ uproxier cert
 # 选择 "安装证书到系统"
 
 # 从源码运行
-python3 cli.py cert
+python3 -m uproxier cert
 # 选择 "安装证书到系统"
 ```
 
@@ -728,19 +728,25 @@ sudo update-ca-certificates
 
 ```
 UProxier/
-├── proxy_server.py      # 主代理服务器
-├── rules_engine.py      # 规则引擎
-├── certificate_manager.py # 证书管理
-├── web_interface.py     # Web 界面
-├── cli.py              # 命令行工具
-├── version.py          # 版本信息
 ├── requirements.txt    # 依赖列表
-├── config.yaml         # 配置文件
 ├── README.md           # GitHub 文档
 ├── README_PYPI.md      # PyPI 文档
-└── uproxier/           # 包目录
+├── API_USAGE.md        # API 使用文档
+└── uproxier/           # 主包目录
+    ├── __init__.py     # 包初始化
+    ├── __main__.py     # 模块入口
+    ├── cli.py          # 命令行工具
+    ├── proxy_server.py # 主代理服务器
+    ├── rules_engine.py # 规则引擎
+    ├── certificate_manager.py # 证书管理
+    ├── web_interface.py # Web 界面
+    ├── action_processors.py # 动作处理器
+    ├── config_validator.py # 配置验证器
+    ├── exceptions.py   # 异常定义
+    ├── network_utils.py # 网络工具
+    ├── version.py      # 版本信息
     ├── templates/      # Web 模板
-    └── examples/       # 内置示例
+    └── examples/       # 内置示例（14个规则示例 + 配置示例）
 ```
 
 ## 故障排除
@@ -773,10 +779,10 @@ UProxier/
 
 2. **证书错误**
     - 确保证书已正确安装到系统
-    - 重新生成证书：`uproxier cert`（PyPI 安装）或 `python3 cli.py cert`（源码安装）
+    - 重新生成证书：`uproxier cert`（PyPI 安装）或 `python3 -m uproxier cert`（源码安装）
 
 3. **端口被占用**
-    - 使用不同的端口：`uproxier start --port 8003`（PyPI 安装）或 `python3 cli.py start --port 8003`（源码安装）
+    - 使用不同的端口：`uproxier start --port 8003`（PyPI 安装）或 `python3 -m uproxier start --port 8003`（源码安装）
 
 4. **规则不生效**
     - 检查规则配置是否正确
@@ -797,7 +803,7 @@ UProxier/
 uproxier --verbose start
 
 # 从源码运行
-python3 cli.py --verbose start
+python3 -m uproxier --verbose start
 ```
 
 ## 许可证
