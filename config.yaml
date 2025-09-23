@@ -1,8 +1,0 @@
-capture:
-  enable_streaming: false
-  enable_large_files: false
-  large_file_threshold: 1048576
-  save_binary_content: false
-  enable_https: true
-
-rules: [ ]
