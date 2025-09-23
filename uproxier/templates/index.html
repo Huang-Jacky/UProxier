@@ -43,6 +43,18 @@
             height: 18px;
         }
 
+        .navbar-brand svg {
+            transition: transform 0.2s ease;
+        }
+
+        .navbar-brand:hover svg {
+            transform: scale(1.05);
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+        }
+
         /* 紧凑统计栏样式 */
         .stats-bar {
             background: white;
@@ -573,7 +585,25 @@
 <body>
 <nav class="navbar navbar-dark bg-primary">
     <div class="container-fluid d-flex align-items-center justify-content-between">
-        <span class="navbar-brand">UProxier</span>
+        <span class="navbar-brand d-flex align-items-center">
+            <svg width="35" height="35" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" class="me-2" style="flex-shrink: 0;">
+                <rect width="32" height="32" rx="6" fill="#1e293b"/>
+                <g fill="#3b82f6">
+                    <circle cx="8" cy="16" r="4"/>
+                    <circle cx="8" cy="16" r="2" fill="#ffffff"/>
+                    <circle cx="24" cy="16" r="4"/>
+                    <circle cx="24" cy="16" r="2" fill="#ffffff"/>
+                    <rect x="12" y="14" width="12" height="4" rx="2"/>
+                    <path d="M20 12 L24 16 L20 20 L22 16 Z" fill="#ffffff"/>
+                </g>
+                <circle cx="16" cy="8" r="1.5" fill="#10b981"/>
+                <circle cx="16" cy="24" r="1.5" fill="#10b981"/>
+            </svg>
+            <div class="d-flex align-items-end">
+                <span>UProxier</span>
+                <small class="text-muted ms-2" style="font-size: 0.7rem;">v{{ version }}</small>
+            </div>
+        </span> 
         <div class="d-flex align-items-center gap-2">
             <div class="dropdown me-1">
                 <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown"

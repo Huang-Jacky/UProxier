@@ -80,7 +80,7 @@ class WebInterface:
 
         @self.app.route('/')
         def index():
-            return render_template('index.html')
+            return render_template('index.html', version=get_version())
 
         @self.app.route('/api/traffic')
         def get_traffic():
