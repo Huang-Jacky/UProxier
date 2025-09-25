@@ -537,6 +537,16 @@ python3 -m uproxier examples --copy 01_set_header.yaml
         - JSON 扁平：{ a.b: 1, items.0.name: "foo" }（点路径/数组索引）
         - JSON 单键：{ path: "a.b", value: 1 }（兼容 to）
         - 自动更新 Content-Length
+    - `set_variable`：设置全局变量（支持跨请求数据共享）
+        - 请求阶段：可设置基于请求的变量，支持内置变量（{{timestamp}}, {{datetime}}, {{random}}）
+        - 使用示例：
+          ```yaml
+          # 设置请求相关的变量
+          - action: set_variable
+            params:
+              request_id: "{{timestamp}}"
+              request_time: "{{datetime}}"
+          ```
 
 - 响应阶段动作（response_pipeline）
     - `set_status`：设置状态码（params: 200）
@@ -547,7 +557,29 @@ python3 -m uproxier examples --copy 01_set_header.yaml
         - 批量对象：{ values: { status: 1, data.id: "abc" } }
         - 批量数组：{ values: [ { path: "status", value: 1 }, ... ] }
         - 单键糖：{ path: "status", value: 1 }
-        - 仅对 JSON 生效；若原 Content-Type 非 JSON 会补齐 application/json; charset=utf-8；中间对象自动创建，数组索引需存在
+    - `set_variable`：设置全局变量（支持跨请求数据共享）
+        - 响应阶段：可设置基于响应数据的变量，支持 {{data.field}} 格式提取响应字段
+        - **重要**：`data` 是系统自动创建的上下文字段，包装整个响应 JSON 数据
+        - 支持内置变量（{{timestamp}}, {{datetime}}, {{random}}）和全局变量
+        - 使用示例：
+          ```yaml
+          # 从响应中提取数据
+          - action: set_variable
+            params:
+              user_id: "{{data.user_id}}"
+              username: "{{data.username}}"
+              auth_token: "{{data.token}}"
+              # 如果响应是 {"appVersion": "1.2.1"}，则使用：
+              app_version: "{{data.appVersion}}"
+          
+          # 在其他请求中使用
+          - action: replace_body_json
+            params:
+              values:
+                "user_id": "{{user_id}}"
+                "username": "{{username}}"
+                "timestamp": "{{timestamp}}"
+          ```
     - `mock_response`：完全替换响应
         - params: { status_code?, headers?, content? | file?, redirect_to?/location? }
         - headers 采用“覆盖/新增”，不会清空其它上游头
@@ -567,6 +599,25 @@ python3 -m uproxier examples --copy 01_set_header.yaml
         - params: { time?, jitter?, distribution?, p50?, p95?, p99? }（单位 ms）
         - 实现方式：抓取 flow.reply 并延后下发；响应头回写 X-Delay-Applied / X-Delay-Effective
     - `short_circuit`：本地直返（等价于 mock_response）
+
+- 模板变量支持
+    - 内置变量：
+        - `{{timestamp}}`：当前时间戳（秒）
+        - `{{datetime}}`：当前日期时间（ISO 格式）
+        - `{{random}}`：随机数（1000-9999）
+    - 全局变量：
+        - `{{变量名}}`：通过 `set_variable` 设置的全局变量
+        - 支持跨请求数据共享，变量在代理运行期间持续有效
+    - 响应数据变量：
+        - `{{data.field}}`：从响应 JSON 中提取字段值
+        - **重要**：`data` 是系统自动创建的上下文字段，包装整个响应数据
+        - 支持嵌套字段：`{{data.user.profile.name}}`
+        - 支持数组索引：`{{data.items.0.title}}`
+        - **示例**：如果响应是 `{"appVersion": "1.2.1"}`，则使用 `{{data.appVersion}}` 获取 "1.2.1"
+    - 使用场景：
+        - 在 `set_variable` 中提取响应数据：`user_id: "{{data.user_id}}"`
+        - 在 `replace_body_json` 中使用全局变量：`"user_id": "{{user_id}}"`
+        - 在 `set_header` 中使用时间戳：`X-Request-Time: "{{timestamp}}"`
 
 - 执行与可观测性
     - 按 priority 从大到小遍历；命中后执行 request_pipeline → 上游 → response_pipeline

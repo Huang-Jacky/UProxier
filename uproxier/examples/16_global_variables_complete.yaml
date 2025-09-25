@@ -1,0 +1,99 @@
+# 全局变量完整示例
+# 功能：演示跨请求的数据共享和模板变量使用
+
+capture:
+  enable_streaming: false
+  enable_large_files: false
+  large_file_threshold: 1048576
+  save_binary_content: false
+  enable_https: true
+  include:
+    hosts: []
+    paths: []
+    methods: ['GET', 'POST']
+  exclude:
+    hosts: []
+    paths: []
+    methods: []
+
+rules:
+  - name: "提取用户数据到全局变量"
+    enabled: true
+    priority: 100
+    match:
+      host: "^api1\\.example\\.com$"
+      path: "^/user/info$"
+    response_pipeline:
+      - action: set_variable
+        params:
+          user_id: "{{ data.user_id }}"
+          username: "{{ data.username }}"
+          email: "{{ data.email }}"
+
+  - name: "使用全局变量修改响应"
+    enabled: true
+    priority: 90
+    match:
+      host: "^api2\\.example\\.com$"
+      path: "^/profile$"
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            "user_id": "{{ user_id }}"
+            "username": "{{ username }}"
+            "email": "{{ email }}"
+            "timestamp": "{{ timestamp }}"
+
+  - name: "条件设置变量"
+    enabled: true
+    priority: 80
+    match:
+      host: "^api3\\.example\\.com$"
+      path: "^/auth$"
+    response_pipeline:
+      - action: conditional
+        params:
+          condition: "{{ data.status }} == 'success'"
+          true_actions:
+            - action: set_variable
+              params:
+                auth_token: "{{ data.token }}"
+                session_id: "{{ data.session_id }}"
+          false_actions:
+            - action: set_variable
+              params:
+                auth_token: null
+                session_id: null
+
+  - name: "使用认证信息"
+    enabled: true
+    priority: 70
+    match:
+      host: "^api4\\.example\\.com$"
+      path: "^/protected$"
+    request_pipeline:
+      - action: set_header
+        params:
+          Authorization: "Bearer {{ auth_token }}"
+          X-Session-ID: "{{ session_id }}"
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            "authenticated": true
+            "user": "{{ username }}"
+            "token_expires": "{{ timestamp }}"
+
+  - name: "暴露变量到响应头"
+    enabled: true
+    priority: 60
+    match:
+      host: "^api5\\.example\\.com$"
+      path: "^/debug$"
+    response_pipeline:
+      - action: set_header
+        params:
+          X-User-ID: "{{ user_id }}"
+          X-Username: "{{ username }}"
+          X-Debug-Info: "User: {{ username }}, ID: {{ user_id }}"

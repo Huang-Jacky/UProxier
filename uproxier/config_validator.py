@@ -199,7 +199,8 @@ class ConfigValidator:
         valid_actions = {
             'set_header', 'remove_header', 'rewrite_url', 'set_query_param',
             'set_body_param', 'replace_body', 'replace_body_json', 'mock_response',
-            'delay', 'conditional', 'short_circuit', 'set_status'
+            'delay', 'conditional', 'short_circuit', 'set_status',
+            'set_variable'
         }
 
         if action_name not in valid_actions:
@@ -219,6 +220,8 @@ class ConfigValidator:
             self._validate_set_status_action(action, path)
         elif action_name == 'remove_header':
             self._validate_remove_header_action(action, path)
+        elif action_name == 'set_variable':
+            self._validate_set_variable_action(action, path)
 
     def _validate_mock_response_action(self, action: dict, path: str, config_path: str = None) -> None:
         """验证 mock_response 动作"""
@@ -343,6 +346,20 @@ class ConfigValidator:
                     self.validation_errors.append(f"{path}.params.{key} 必须是字符串")
         else:
             self.validation_errors.append(f"{path}.params 必须是数组或字典")
+
+    def _validate_set_variable_action(self, action: dict, path: str) -> None:
+        """验证 set_variable 动作"""
+        if 'params' not in action:
+            self.validation_errors.append(f"{path} 缺少 params 字段")
+            return
+
+        params = action['params']
+        if not isinstance(params, dict):
+            self.validation_errors.append(f"{path}.params 必须是字典格式")
+
+        # 检查是否有变量名
+        if not params:
+            self.validation_errors.append(f"{path}.params 不能为空")
 
     def _validate_extends_config(self, extends: str, config_path: str = None) -> None:
         """验证继承配置"""

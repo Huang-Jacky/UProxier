@@ -1208,8 +1208,17 @@
             const ruleName = rh['X-Rule-Name'] || rh['x-rule-name'];
             const delayApplied = (rh['X-Delay-Applied'] || rh['x-delay-applied']) === 'true';
             const delayMs = rh['X-Delay-Effective'] || rh['x-delay-effective'];
+            // 处理规则名显示
+            let rulePills = '';
+            if (ruleName) {
+                const rules = ruleName.split('\n').filter(rule => rule.trim());
+                rulePills = rules.map(rule => 
+                    `<span class="kv-pill rule" title="命中规则">Rule: ${escapeHtml(rule.trim())}</span>`
+                ).join(' ');
+            }
+            
             const marks = `
-                  ${ruleName ? `<span class="kv-pill rule" title="命中规则">Rule: ${escapeHtml(ruleName)}</span>` : ''}
+                  ${rulePills}
                   ${delayApplied ? `<span class="kv-pill delay" title="延迟生效">Delay: ${escapeHtml(String(delayMs || ''))}ms</span>` : ''}
                 `;
             document.getElementById('response-content').innerHTML = `
@@ -1266,10 +1275,17 @@
             if (count % 2 === 0 && count > 0) {
                 html += '</div><div class="row">';
             }
+            
+            // 特殊处理 X-Rule-Name，将换行符替换为逗号
+            let displayValue = value;
+            if (name === 'X-Rule-Name' || name === 'x-rule-name') {
+                displayValue = value.replace(/\n/g, ', ');
+            }
+            
             html += `<div class="col-6">
                     <div class="header-item">
                         <span class="header-name">${name}:</span>
-                        <span class="header-value">${value}</span>
+                        <span class="header-value">${displayValue}</span>
                     </div>
                 </div>`;
             count++;

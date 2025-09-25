@@ -2,12 +2,15 @@
 # -*- coding: utf-8 -*-
 
 import json
+import time
 from abc import ABC, abstractmethod
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 
 import mitmproxy.http as http
+from uproxier.global_variables import global_vars, process_template_variables, process_template_dict
 
 
 class ActionProcessor(ABC):
@@ -367,7 +370,8 @@ class ReplaceBodyJsonProcessor(ActionProcessor):
             return False
 
         try:
-            params = params or {}
+            # 处理模板变量
+            processed_params = process_template_dict(params or {})
             obj = json.loads(response.content.decode('utf-8', errors='ignore') or 'null')
 
             def _set_deep(container: Any, key_path: str, value: Any) -> None:
@@ -380,12 +384,12 @@ class ReplaceBodyJsonProcessor(ActionProcessor):
                 current[keys[-1]] = value
 
             # 处理单个路径
-            if 'path' in params and 'value' in params:
-                _set_deep(obj, params['path'], params['value'])
+            if 'path' in processed_params and 'value' in processed_params:
+                _set_deep(obj, processed_params['path'], processed_params['value'])
 
             # 处理批量修改
-            elif 'values' in params:
-                values = params['values']
+            elif 'values' in processed_params:
+                values = processed_params['values']
                 if isinstance(values, dict):
                     for path, value in values.items():
                         _set_deep(obj, path, value)
@@ -612,6 +616,95 @@ class ConditionalProcessor(ActionProcessor):
         return modified
 
 
+class SetVariableProcessor(ActionProcessor):
+    """设置全局变量处理器"""
+
+    @property
+    def action_name(self) -> str:
+        return 'set_variable'
+
+    def can_handle(self, action: str) -> bool:
+        return action == 'set_variable'
+
+    def process_request(self, request: http.Request, params: Dict[str, Any]) -> bool:
+        """请求阶段设置变量"""
+        return self._set_variable(params)
+
+    def process_response(self, response: http.Response, params: Dict[str, Any]) -> bool:
+        """响应阶段设置变量"""
+        return self._set_variable(params, response)
+
+    def _set_variable(self, params: Dict[str, Any], response: http.Response = None) -> bool:
+        """设置全局变量"""
+        if not params:
+            return False
+        
+        # 处理模板变量，支持从响应数据中提取
+        processed_params = self._process_template_with_response(params, response)
+        
+        # 设置变量
+        for name, value in processed_params.items():
+            if name == 'ttl':
+                continue
+            
+            global_vars.set_variable(name, value)
+        
+        return True
+    
+    def _process_template_with_response(self, params: Dict[str, Any], response: http.Response = None) -> Dict[str, Any]:
+        """处理模板变量，支持从响应数据中提取"""
+        if not response or not response.content:
+            return process_template_dict(params)
+        
+        try:
+            # 解析响应数据
+            response_data = json.loads(response.content.decode('utf-8', errors='ignore'))
+            
+            # 创建包含响应数据的上下文
+            context = {
+                'data': response_data,
+                'timestamp': str(int(time.time())),
+                'datetime': datetime.now().isoformat()
+            }
+            
+            # 添加全局变量到上下文
+            for name, value in global_vars._variables.items():
+                context[name] = value
+            
+            # 处理模板变量
+            result = {}
+            for key, value in params.items():
+                if isinstance(value, str):
+                    # 处理 {{variable}} 格式
+                    import re
+                    pattern = r'\{\{\s*([^}]+)\s*\}\}'
+                    
+                    def replace_var(match):
+                        var_path = match.group(1).strip()
+                        # 支持 data.field 格式
+                        if '.' in var_path:
+                            parts = var_path.split('.')
+                            current = context
+                            try:
+                                for part in parts:
+                                    current = current[part]
+                                return str(current)
+                            except (KeyError, TypeError):
+                                return match.group(0)
+                        else:
+                            return str(context.get(var_path, match.group(0)))
+                    
+                    result[key] = re.sub(pattern, replace_var, value)
+                else:
+                    result[key] = value
+            
+            return result
+            
+        except Exception:
+            # 如果解析失败，使用原始模板处理
+            return process_template_dict(params)
+
+
 class ActionProcessorManager:
     """动作处理器管理器"""
 
@@ -635,7 +728,8 @@ class ActionProcessorManager:
             MockResponseProcessor(self.config_dir),
             DelayProcessor(),
             ShortCircuitProcessor(),
-            ConditionalProcessor(self)
+            ConditionalProcessor(self),
+            SetVariableProcessor()
         ])
 
     def register_processor(self, processor: ActionProcessor) -> None:

@@ -1,0 +1,90 @@
+# 全局变量示例
+# 功能：演示跨请求的数据共享和模板变量使用
+
+rules:
+  - name: "提取用户数据到全局变量"
+    enabled: true
+    priority: 100
+    match:
+      host: "^api1\\.example\\.com$"
+      path: "^/user/info$"
+    response_pipeline:
+      - action: set_variable
+        params:
+          user_id: "{{ data.user_id }}"
+          username: "{{ data.username }}"
+          email: "{{ data.email }}"
+          ttl: 3600  # 1小时过期
+
+  - name: "使用全局变量修改响应"
+    enabled: true
+    priority: 90
+    match:
+      host: "^api2\\.example\\.com$"
+      path: "^/profile$"
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            "user_id": "{{ user_id }}"
+            "username": "{{ username }}"
+            "email": "{{ email }}"
+            "timestamp": "{{ timestamp }}"
+
+  - name: "条件设置变量"
+    enabled: true
+    priority: 80
+    match:
+      host: "^api3\\.example\\.com$"
+      path: "^/auth$"
+    response_pipeline:
+      - action: conditional
+        params:
+          condition: "{{ data.status }} == 'success'"
+          true_actions:
+            - action: set_variable
+              params:
+                auth_token: "{{ data.token }}"
+                session_id: "{{ data.session_id }}"
+                ttl: 7200  # 2小时过期
+          false_actions:
+            - action: set_variable
+              params:
+                auth_token: null
+                session_id: null
+
+  - name: "使用认证信息"
+    enabled: true
+    priority: 70
+    match:
+      host: "^api4\\.example\\.com$"
+      path: "^/protected$"
+    request_pipeline:
+      - action: set_header
+        params:
+          Authorization: "Bearer {{ auth_token }}"
+          X-Session-ID: "{{ session_id }}"
+    response_pipeline:
+      - action: replace_body_json
+        params:
+          values:
+            "authenticated": true
+            "user": "{{ username }}"
+            "token_expires": "{{ timestamp }}"
+
+  - name: "获取变量到响应头"
+    enabled: true
+    priority: 60
+    match:
+      host: "^api5\\.example\\.com$"
+      path: "^/debug$"
+    response_pipeline:
+      - action: get_variable
+        params:
+          name: "user_id"
+      - action: get_variable
+        params:
+          name: "username"
+      - action: set_header
+        params:
+          X-Debug-Info: "User: {{ username }}, ID: {{ user_id }}"
