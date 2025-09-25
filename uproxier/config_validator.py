@@ -293,18 +293,12 @@ class ConfigValidator:
 
         params = action['params']
 
-        # 验证必需参数
-        if 'file' not in params:
-            self.validation_errors.append(f"{path}.params 缺少 file 字段")
+        if 'values' not in params:
+            self.validation_errors.append(f"{path}.params 缺少 values 字段")
         else:
-            # 验证文件路径
-            file_path = params['file']
-            if config_path and not os.path.isabs(file_path):
-                # 计算绝对路径
-                config_dir = Path(config_path).parent
-                absolute_path = (config_dir / file_path).resolve()
-                if not absolute_path.exists():
-                    self.validation_errors.append(f"{path}.params.file 引用的文件不存在: {absolute_path}")
+            values = params['values']
+            if not isinstance(values, dict):
+                self.validation_errors.append(f"{path}.params.values 必须是字典格式")
 
     def _validate_set_status_action(self, action: dict, path: str) -> None:
         """验证 set_status 动作"""
