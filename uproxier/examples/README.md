@@ -18,11 +18,14 @@ UProxier 规则引擎的各种使用示例。
 - **10_conditional.yaml** - 条件执行
 - **11_short_circuit.yaml** - 短路响应
 
-### 匹配和流程控制
+### 高级功能示例
 
 - **12_match_conditions.yaml** - 各种匹配条件组合
 - **13_priority_stop_after_match.yaml** - 优先级和停止匹配
 - **14_complex_workflows.yaml** - 复杂工作流组合
+- **15_global_variables.yaml** - 全局变量基础用法
+- **16_global_variables_complete.yaml** - 全局变量完整示例
+- **17_remove_json_field.yaml** - 移除 JSON 字段示例
 
 ## 使用方法
 
@@ -80,6 +83,7 @@ rules:
 - `replace_body` - 替换请求体
 - `set_query_param` - 设置查询参数
 - `set_body_param` - 设置请求体参数
+- `set_variable` - 设置全局变量
 - `short_circuit` - 请求阶段短路
 
 ### 响应阶段动作 (response_pipeline)
@@ -89,8 +93,10 @@ rules:
 - `remove_header` - 移除响应头
 - `replace_body` - 替换响应体
 - `replace_body_json` - 精确修改 JSON 字段
+- `remove_json_field` - 移除 JSON 字段
 - `mock_response` - Mock 响应
 - `delay` - 延迟响应
+- `set_variable` - 设置全局变量
 - `conditional` - 条件执行
 - `short_circuit` - 响应阶段短路
 
@@ -100,8 +106,40 @@ rules:
 2. **停止匹配**：`stop_after_match: true` 时，该规则执行后不再执行后续规则
 3. **正则表达式**：host 和 path 支持正则表达式，注意转义特殊字符
 4. **JSON 修改**：`replace_body_json` 支持点路径语法（如 `user.profile.name`）
-5. **文件路径**：`mock_response` 的 `file` 参数支持相对路径和绝对路径
-6. **延迟分布**：支持 uniform、normal、exponential 三种分布模式
+5. **JSON 字段删除**：`remove_json_field` 支持删除顶级字段、嵌套字段、数组元素和数组中对象的字段
+6. **全局变量**：`set_variable` 支持跨请求的数据传递，支持模板变量（`{{timestamp}}`、`{{data.field}}`）
+7. **文件路径**：`mock_response` 的 `file` 参数支持相对路径和绝对路径
+8. **延迟分布**：支持 uniform、normal、exponential 三种分布模式
+
+## 新功能详解
+
+### 全局变量 (set_variable)
+
+支持跨请求的数据传递，在请求或响应阶段设置变量：
+
+```yaml
+- action: set_variable
+  params:
+    user_id: "{{data.user_id}}"      # 从响应数据中提取
+    timestamp: "{{timestamp}}"      # 使用内置变量
+    custom_value: "fixed_value"      # 设置固定值
+```
+
+### JSON 字段删除 (remove_json_field)
+
+支持多种删除模式：
+
+```yaml
+- action: remove_json_field
+  params:
+    fields: [
+      "sensitive_field",             # 删除顶级字段
+      "data.nested_field",           # 删除嵌套字段
+      "users.1",                     # 删除数组元素
+      "users.0.secret",              # 删除数组中对象的字段
+      "matrix.0.1"                   # 删除多层嵌套数组元素
+    ]
+```
 
 ## 调试技巧
 
