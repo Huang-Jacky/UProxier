@@ -598,6 +598,16 @@ python3 -m uproxier examples --copy 01_set_header.yaml
     - `delay`：真实延迟发送
         - params: { time?, jitter?, distribution?, p50?, p95?, p99? }（单位 ms）
         - 实现方式：抓取 flow.reply 并延后下发；响应头回写 X-Delay-Applied / X-Delay-Effective
+    - `remove_json_field`：移除 JSON 响应中的字段
+        - params: { fields: string | array }（要删除的字段名，支持字符串或数组）
+        - 支持嵌套字段删除（如 "user.metadata"）
+        - 示例：
+          ```yaml
+          response_pipeline:
+            - action: remove_json_field
+              params:
+                fields: ["password", "token", "debug_info"]
+          ```
     - `short_circuit`：本地直返（等价于 mock_response）
 
 - 模板变量支持

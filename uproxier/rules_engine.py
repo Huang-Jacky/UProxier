@@ -442,7 +442,7 @@ class RulesEngine:
                 req_actions = {'set_header', 'remove_header', 'rewrite_url', 'redirect', 'replace_body',
                                'short_circuit', 'set_query_param', 'set_body_param'}
                 res_actions = {'set_status', 'set_header', 'remove_header', 'replace_body', 'replace_body_json',
-                               'mock_response', 'delay', 'short_circuit', 'conditional', 'set_variable'}
+                               'mock_response', 'delay', 'short_circuit', 'conditional', 'set_variable', 'remove_json_field'}
                 valid = req_actions if key == 'request_pipeline' else res_actions
                 if action not in valid:
                     suggestions = [a for a in valid if a.startswith(action[:3])] if action else []

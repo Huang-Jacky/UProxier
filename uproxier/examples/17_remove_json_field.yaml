@@ -1,0 +1,128 @@
+# 移除 JSON 字段示例
+# 演示如何使用 remove_json_field 动作移除响应中的特定字段
+
+capture:
+  include:
+    hosts: [".*\\.example\\.com$"]
+  exclude:
+    hosts: []
+
+rules:
+  # 规则1：移除敏感字段
+  - name: "移除敏感信息"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/user/profile$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: ["password", "token", "secret_key"]
+
+  # 规则2：移除调试信息
+  - name: "移除调试字段"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/debug$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: ["debug_info", "internal_id", "trace_id"]
+
+  # 规则3：移除单个字段
+  - name: "移除时间戳"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/data$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: "timestamp"  # 单个字段可以用字符串
+
+  # 规则4：移除嵌套字段
+  - name: "移除嵌套字段"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/nested$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: ["user.metadata", "config.debug"]
+
+  # 规则5：移除数组元素
+  - name: "移除数组元素"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/array$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: ["items.1", "tags.2"]  # 移除数组中的指定索引元素
+
+  # 规则6：移除数组中的多个元素
+  - name: "移除数组中的多个元素"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/list$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: ["users.0", "users.2", "users.4"]  # 移除用户列表中的第1、3、5个用户
+
+  # 规则7：复杂数组和嵌套字段删除
+  - name: "复杂数组和嵌套字段删除"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/complex$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: [
+            "data.sensitive_field",      # 嵌套字段
+            "users.1",                   # 数组元素
+            "config.debug",              # 嵌套字段
+            "logs.0",                    # 数组元素
+            "temp_data"                  # 顶级字段
+          ]
+
+  # 规则8：数组中的对象字段删除
+  - name: "数组中的对象字段删除"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/users$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: [
+            "users.0.secret",            # 删除第一个用户的secret字段
+            "users.1.password",          # 删除第二个用户的password字段
+            "users.2.internal_id"        # 删除第三个用户的internal_id字段
+          ]
+
+  # 规则9：多层嵌套数组操作
+  - name: "多层嵌套数组操作"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/matrix$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: [
+            "matrix.0.1",                # 删除 matrix[0][1]
+            "matrix.1.2",                # 删除 matrix[1][2]
+            "data.nested.0"              # 删除 data.nested[0]
+          ]
+
+  # 规则10：结合其他动作使用
+  - name: "移除字段并添加新字段"
+    match:
+      host: "^.*\\.example\\.com$"
+      path: "^/api/combined$"
+    response_pipeline:
+      - action: remove_json_field
+        params:
+          fields: ["old_field", "deprecated_field"]
+      - action: replace_body_json
+        params:
+          values:
+            new_field: "updated_value"
+            timestamp: "{{timestamp}}"

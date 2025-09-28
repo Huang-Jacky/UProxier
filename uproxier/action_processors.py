@@ -729,7 +729,8 @@ class ActionProcessorManager:
             DelayProcessor(),
             ShortCircuitProcessor(),
             ConditionalProcessor(self),
-            SetVariableProcessor()
+            SetVariableProcessor(),
+            RemoveJsonFieldProcessor()
         ])
 
     def register_processor(self, processor: ActionProcessor) -> None:
@@ -758,3 +759,103 @@ class ActionProcessorManager:
         if processor:
             return processor.process_response(response, params)
         return False
+
+
+class RemoveJsonFieldProcessor(ActionProcessor):
+    """移除 JSON 字段处理器"""
+
+    @property
+    def action_name(self) -> str:
+        return 'remove_json_field'
+
+    def can_handle(self, action: str) -> bool:
+        return action == 'remove_json_field'
+
+    def process_request(self, request: http.Request, params: Dict[str, Any]) -> bool:
+        """请求阶段不支持移除 JSON 字段"""
+        return False
+
+    def process_response(self, response: http.Response, params: Dict[str, Any]) -> bool:
+        """移除 JSON 字段"""
+        if not response.content:
+            return False
+
+        try:
+            obj = json.loads(response.content.decode('utf-8', errors='ignore') or 'null')
+            
+            # 获取要删除的字段列表
+            fields_to_remove = params.get('fields', [])
+            if isinstance(fields_to_remove, str):
+                fields_to_remove = [fields_to_remove]
+            
+            # 递归删除字段（支持嵌套路径和数组索引）
+            def remove_fields_recursive(data: Any, field_paths: list) -> Any:
+                if isinstance(data, dict):
+                    result = {}
+                    for key, value in data.items():
+                        # 检查当前键是否匹配任何路径
+                        should_remove = False
+                        for path in field_paths:
+                            if '.' in path:
+                                # 嵌套路径，检查是否以当前键开头
+                                if path.startswith(key + '.'):
+                                    # 递归处理嵌套路径
+                                    nested_path = path[len(key) + 1:]  # 移除 "key." 前缀
+                                    result[key] = remove_fields_recursive(value, [nested_path])
+                                    should_remove = True
+                                    break
+                            else:
+                                # 顶级字段
+                                if key == path:
+                                    should_remove = True
+                                    break
+                        
+                        if not should_remove:
+                            result[key] = remove_fields_recursive(value, field_paths)
+                    return result
+                elif isinstance(data, list):
+                    # 处理数组元素删除
+                    result = []
+                    for i, item in enumerate(data):
+                        should_remove = False
+                        for path in field_paths:
+                            # 检查是否是数组索引路径
+                            # 情况1: 直接索引路径 (如 "1")
+                            # 情况2: 带点号的索引路径 (如 "0.secret" 用于删除数组中对象的字段)
+                            if '.' in path:
+                                path_parts = path.split('.')
+                                if len(path_parts) >= 2:
+                                    try:
+                                        index = int(path_parts[0])
+                                        if i == index:
+                                            # 这是数组中的对象字段删除，递归处理
+                                            nested_path = '.'.join(path_parts[1:])
+                                            result.append(remove_fields_recursive(item, [nested_path]))
+                                            should_remove = True
+                                            break
+                                    except ValueError:
+                                        pass
+                            else:
+                                # 纯数字路径，删除整个数组元素
+                                try:
+                                    index = int(path)
+                                    if i == index:
+                                        should_remove = True
+                                        break
+                                except ValueError:
+                                    pass
+                        
+                        if not should_remove:
+                            result.append(remove_fields_recursive(item, field_paths))
+                    return result
+                else:
+                    return data
+            
+            # 删除指定字段
+            obj = remove_fields_recursive(obj, fields_to_remove)
+            
+            # 更新响应内容
+            response.content = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+            return True
+        except Exception:
+            return False

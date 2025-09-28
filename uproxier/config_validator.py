@@ -200,7 +200,7 @@ class ConfigValidator:
             'set_header', 'remove_header', 'rewrite_url', 'set_query_param',
             'set_body_param', 'replace_body', 'replace_body_json', 'mock_response',
             'delay', 'conditional', 'short_circuit', 'set_status',
-            'set_variable'
+            'set_variable', 'remove_json_field'
         }
 
         if action_name not in valid_actions:
@@ -222,6 +222,8 @@ class ConfigValidator:
             self._validate_remove_header_action(action, path)
         elif action_name == 'set_variable':
             self._validate_set_variable_action(action, path)
+        elif action_name == 'remove_json_field':
+            self._validate_remove_json_field_action(action, path)
 
     def _validate_mock_response_action(self, action: dict, path: str, config_path: str = None) -> None:
         """验证 mock_response 动作"""
@@ -360,6 +362,35 @@ class ConfigValidator:
         # 检查是否有变量名
         if not params:
             self.validation_errors.append(f"{path}.params 不能为空")
+
+    def _validate_remove_json_field_action(self, action: dict, path: str) -> None:
+        """验证 remove_json_field 动作"""
+        if 'params' not in action:
+            self.validation_errors.append(f"{path} 缺少 params 字段")
+            return
+
+        params = action['params']
+        if not isinstance(params, dict):
+            self.validation_errors.append(f"{path}.params 必须是字典格式")
+            return
+
+        # 检查 fields 参数
+        if 'fields' not in params:
+            self.validation_errors.append(f"{path}.params 缺少 fields 字段")
+            return
+
+        fields = params['fields']
+        if not isinstance(fields, (list, str)):
+            self.validation_errors.append(f"{path}.params.fields 必须是字符串或数组")
+            return
+
+        if isinstance(fields, list) and not fields:
+            self.validation_errors.append(f"{path}.params.fields 不能为空数组")
+            return
+
+        if isinstance(fields, str) and not fields.strip():
+            self.validation_errors.append(f"{path}.params.fields 不能为空字符串")
+            return
 
     def _validate_extends_config(self, extends: str, config_path: str = None) -> None:
         """验证继承配置"""
