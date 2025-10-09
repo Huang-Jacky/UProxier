@@ -408,6 +408,7 @@ rules:
     - host: 主机匹配正则（字符串，推荐使用锚点 ^…$，大小写不敏感）
     - path: 路径匹配正则（字符串，推荐以 ^/ 开头）
     - method: HTTP 方法（字符串，如 GET/POST，大小写不敏感）
+    - keywords: 请求参数关键字（通常用于 GET 请求匹配，多个关键字可以使用数组["a", "b", "c"] 请求参数中包含任意一个关键字即匹配成功）
 - request_pipeline: 请求阶段流水线（数组，按顺序执行）
 - response_pipeline: 响应阶段流水线（数组，按顺序执行）
 
@@ -523,6 +524,7 @@ python3 -m uproxier examples --copy 01_set_header.yaml
         - `host`：主机正则（不区分大小写，建议使用 ^...$）
         - `path`：路径正则（建议以 ^/ 开头）
         - `method`：HTTP 方法（GET/POST/...）
+        - `keywords`: 请求参数关键字（单个关键字可使用字符串，多个关键字使用数组传递）
     - `request_pipeline` / `response_pipeline`（数组）：流水线动作，按顺序执行
 
 - 请求阶段动作（request_pipeline）

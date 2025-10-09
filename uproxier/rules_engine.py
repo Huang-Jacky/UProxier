@@ -37,6 +37,8 @@ class Rule:
             conds['host_pattern'] = match_cfg['host_pattern']
         if 'method' in match_cfg:
             conds['method'] = match_cfg['method']
+        if 'keywords' in match_cfg:
+            conds['keywords'] = match_cfg['keywords']
         self.match_config = conds
         self.request_pipeline: List[Dict[str, Any]] = rule_config.get('request_pipeline', [])
         self.response_pipeline: List[Dict[str, Any]] = rule_config.get('response_pipeline', [])
@@ -118,6 +120,21 @@ class Rule:
                     if 'pattern' in header_value:
                         if not re.search(header_value['pattern'], request.headers[header_name]):
                             return False
+
+        if 'keywords' in self.match_config:
+            keywords = self.match_config['keywords']
+            query = request.query or ""
+
+            if isinstance(keywords, str):
+                # 单个关键字
+                if keywords not in query:
+                    return False
+            elif isinstance(keywords, (list, tuple, set)):
+                # 多个关键字：任意一个命中即可
+                if not any(kw in query for kw in keywords):
+                    return False
+            else:
+                return False
 
         return True
 
@@ -357,20 +374,6 @@ class RulesEngine:
         merged.pop('extends', None)
 
         return merged
-
-    def _export_match(self, conds: Dict[str, Any]) -> Dict[str, Any]:
-        """将内部 match_config(host_pattern/url_pattern/method) 回写为 DSL 的 match(host/path/method)"""
-        out: Dict[str, Any] = {}
-        hp = conds.get('host_pattern')
-        up = conds.get('url_pattern')
-        if isinstance(hp, str):
-            out['host'] = hp
-        if isinstance(up, str):
-            out['path'] = up
-        m = conds.get('method')
-        if isinstance(m, str):
-            out['method'] = m
-        return out
 
     def _validate_rule_config(self, rule_config: Dict[str, Any], idx: int) -> None:
         """验证规则配置

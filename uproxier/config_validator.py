@@ -298,12 +298,18 @@ class ConfigValidator:
 
         params = action['params']
 
-        if 'values' not in params:
-            self.validation_errors.append(f"{path}.params 缺少 values 字段")
-        else:
+        # 支持两种格式：path/value 或 values
+        if 'path' in params and 'value' in params:
+            # 单路径格式：path + value
+            if not isinstance(params['path'], str):
+                self.validation_errors.append(f"{path}.params.path 必须是字符串")
+        elif 'values' in params:
+            # 批量格式：values 字典
             values = params['values']
             if not isinstance(values, dict):
                 self.validation_errors.append(f"{path}.params.values 必须是字典格式")
+        else:
+            self.validation_errors.append(f"{path}.params 必须包含 path+value 或 values 字段")
 
     def _validate_set_status_action(self, action: dict, path: str) -> None:
         """验证 set_status 动作"""

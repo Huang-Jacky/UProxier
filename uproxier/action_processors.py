@@ -64,19 +64,27 @@ class SetHeaderProcessor(ActionProcessor):
 
     def process_request(self, request: http.Request, params: Dict[str, Any]) -> bool:
         """设置请求头"""
-        modified = False
-        for k, v in (params or {}).items():
-            request.headers[k] = v
-            modified = True
-        return modified
+        try:
+            modified = False
+            for k, v in (params or {}).items():
+                request.headers[k] = v
+                modified = True
+            return modified
+        except Exception as e:
+            request.headers['X-SetHeader-Error'] = f'Error: {str(e)}'
+            return False
 
     def process_response(self, response: http.Response, params: Dict[str, Any]) -> bool:
         """设置响应头"""
-        modified = False
-        for k, v in (params or {}).items():
-            response.headers[k] = v
-            modified = True
-        return modified
+        try:
+            modified = False
+            for k, v in (params or {}).items():
+                response.headers[k] = v
+                modified = True
+            return modified
+        except Exception as e:
+            response.headers['X-SetHeader-Error'] = f'Error: {str(e)}'
+            return False
 
 
 class RemoveHeaderProcessor(ActionProcessor):
@@ -367,21 +375,59 @@ class ReplaceBodyJsonProcessor(ActionProcessor):
     def process_response(self, response: http.Response, params: Dict[str, Any]) -> bool:
         """替换 JSON 响应体"""
         if not response.content:
+            response.headers['X-ReplaceBodyJson-Error'] = 'No content'
             return False
 
         try:
             # 处理模板变量
             processed_params = process_template_dict(params or {})
-            obj = json.loads(response.content.decode('utf-8', errors='ignore') or 'null')
+            content_str = response.content.decode('utf-8', errors='ignore') or 'null'
+            # 不在正常情况下输出调试信息
+            obj = json.loads(content_str)
 
             def _set_deep(container: Any, key_path: str, value: Any) -> None:
                 keys = str(key_path).split('.')
                 current = container
-                for key in keys[:-1]:
-                    if key not in current:
-                        current[key] = {}
-                    current = current[key]
-                current[keys[-1]] = value
+                
+                for i, key in enumerate(keys[:-1]):
+                    # 检查下一个键是否是数字（数组索引）
+                    next_key = keys[i + 1] if i + 1 < len(keys) else None
+                    
+                    if isinstance(current, dict):
+                        if key not in current:
+                            # 如果下一个键是数字，创建数组；否则创建对象
+                            current[key] = [] if next_key and next_key.isdigit() else {}
+                        current = current[key]
+                    elif isinstance(current, list):
+                        if key.isdigit():
+                            # 数组索引访问
+                            index = int(key)
+                            # 确保数组有足够的长度
+                            while len(current) <= index:
+                                current.append({})
+                            current = current[index]
+                        else:
+                            # 数组不能用字符串键访问，创建新字典
+                            current = {}
+                            current[key] = {} if next_key and next_key.isdigit() else {}
+                            current = current[key]
+                
+                # 设置最终值
+                final_key = keys[-1]
+                if isinstance(current, list) and final_key.isdigit():
+                    # 数组索引赋值
+                    index = int(final_key)
+                    while len(current) <= index:
+                        current.append({})
+                    current[index] = value
+                elif isinstance(current, dict):
+                    # 普通字段赋值
+                    current[final_key] = value
+                else:
+                    # 兜底：如果 current 不是 dict 也不是 list，强制转换为 dict
+                    if not isinstance(current, dict):
+                        current = {}
+                    current[final_key] = value
 
             # 处理单个路径
             if 'path' in processed_params and 'value' in processed_params:
@@ -399,8 +445,10 @@ class ReplaceBodyJsonProcessor(ActionProcessor):
                             _set_deep(obj, item['path'], item['value'])
 
             response.content = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+            # 正常成功不输出调试头
             return True
-        except Exception:
+        except Exception as e:
+            response.headers['X-ReplaceBodyJson-Error'] = f'Error: {str(e)}'
             return False
 
 
@@ -423,32 +471,32 @@ class MockResponseProcessor(ActionProcessor):
 
     def process_response(self, response: http.Response, params: Dict[str, Any]) -> bool:
         """模拟响应"""
-        mock = params or {}
+        try:
+            mock = params or {}
 
-        # 设置状态码
-        if 'status_code' in mock:
-            response.status_code = mock.get('status_code', 200)
+            # 设置状态码
+            if 'status_code' in mock:
+                response.status_code = mock.get('status_code', 200)
 
-        # 便捷重定向：支持 redirect_to/location 字段
-        if 'redirect_to' in mock and mock.get('redirect_to'):
-            # 若未显式指定状态码，则默认 302
-            if 'status_code' not in mock:
-                response.status_code = 302
-            response.headers['Location'] = str(mock['redirect_to'])
-        if 'location' in mock and mock.get('location'):
-            if 'status_code' not in mock:
-                response.status_code = 302
-            response.headers['Location'] = str(mock['location'])
+            # 便捷重定向：支持 redirect_to/location 字段
+            if 'redirect_to' in mock and mock.get('redirect_to'):
+                # 若未显式指定状态码，则默认 302
+                if 'status_code' not in mock:
+                    response.status_code = 302
+                response.headers['Location'] = str(mock['redirect_to'])
+            if 'location' in mock and mock.get('location'):
+                if 'status_code' not in mock:
+                    response.status_code = 302
+                response.headers['Location'] = str(mock['location'])
 
-        # 设置响应头
-        if 'headers' in mock:
-            # 不清空原有头，逐项覆盖/新增指定键
-            for hk, hv in mock['headers'].items():
-                response.headers[hk] = hv
+            # 设置响应头
+            if 'headers' in mock:
+                # 不清空原有头，逐项覆盖/新增指定键
+                for hk, hv in mock['headers'].items():
+                    response.headers[hk] = hv
 
-        # 处理文件内容
-        if 'file' in mock:
-            try:
+            # 处理文件内容
+            if 'file' in mock:
                 p = Path(mock['file']).expanduser()
                 if not p.is_absolute():
                     # 相对于配置文件目录
@@ -459,27 +507,26 @@ class MockResponseProcessor(ActionProcessor):
                         p = (Path.cwd() / p).resolve()
                 data = p.read_bytes()
                 response.content = data
-            except Exception as e:
-                response.status_code = 500
-                response.headers['Content-Type'] = 'text/plain; charset=utf-8'
-                response.content = f"Mock file read error: {e}".encode('utf-8')
-        # 处理直接内容
-        elif 'content' in mock:
-            content = mock['content']
-            if isinstance(content, dict):
-                # 只有在没有设置 Content-Type 时才自动设置
-                if 'Content-Type' not in mock.get('headers', {}):
-                    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-                response.content = json.dumps(content, ensure_ascii=False).encode('utf-8')
-            elif isinstance(content, str):
-                # 只有在没有设置 Content-Type 时才自动设置
-                if 'Content-Type' not in mock.get('headers', {}):
-                    response.headers['Content-Type'] = 'text/plain; charset=utf-8'
-                response.content = content.encode('utf-8')
-            else:
-                response.content = str(content).encode('utf-8')
+            # 处理直接内容
+            elif 'content' in mock:
+                content = mock['content']
+                if isinstance(content, dict):
+                    # 只有在没有设置 Content-Type 时才自动设置
+                    if 'Content-Type' not in mock.get('headers', {}):
+                        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+                    response.content = json.dumps(content, ensure_ascii=False).encode('utf-8')
+                elif isinstance(content, str):
+                    # 只有在没有设置 Content-Type 时才自动设置
+                    if 'Content-Type' not in mock.get('headers', {}):
+                        response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+                    response.content = content.encode('utf-8')
+                else:
+                    response.content = str(content).encode('utf-8')
 
-        return True
+            return True
+        except Exception as e:
+            response.headers['X-MockResponse-Error'] = f'Error: {str(e)}'
+            return False
 
 
 class DelayProcessor(ActionProcessor):
@@ -498,17 +545,21 @@ class DelayProcessor(ActionProcessor):
 
     def process_response(self, response: http.Response, params: Dict[str, Any]) -> bool:
         """延迟响应"""
-        delay_cfg = params or {}
-        if 'time' in delay_cfg:
-            response.headers['X-Delay-Time'] = str(int(delay_cfg.get('time', 0)))
-        if 'jitter' in delay_cfg:
-            response.headers['X-Delay-Jitter'] = str(int(delay_cfg.get('jitter', 0)))
-        if 'distribution' in delay_cfg:
-            response.headers['X-Delay-Distrib'] = str(delay_cfg.get('distribution'))
-        for k in ('p50', 'p95', 'p99'):
-            if k in delay_cfg:
-                response.headers[f"X-Delay-{k.upper()}"] = str(int(delay_cfg[k]))
-        return True
+        try:
+            delay_cfg = params or {}
+            if 'time' in delay_cfg:
+                response.headers['X-Delay-Time'] = str(int(delay_cfg.get('time', 0)))
+            if 'jitter' in delay_cfg:
+                response.headers['X-Delay-Jitter'] = str(int(delay_cfg.get('jitter', 0)))
+            if 'distribution' in delay_cfg:
+                response.headers['X-Delay-Distrib'] = str(delay_cfg.get('distribution'))
+            for k in ('p50', 'p95', 'p99'):
+                if k in delay_cfg:
+                    response.headers[f"X-Delay-{k.upper()}"] = str(int(delay_cfg[k]))
+            return True
+        except Exception as e:
+            response.headers['X-Delay-Error'] = f'Error: {str(e)}'
+            return False
 
 
 class ShortCircuitProcessor(ActionProcessor):

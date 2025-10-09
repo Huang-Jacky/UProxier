@@ -145,5 +145,10 @@ rules:
 
 1. **查看规则命中**：响应头中的 `X-Rule-Name` 显示命中的规则
 2. **查看延迟信息**：响应头中的 `X-Delay-Applied` 和 `X-Delay-Effective` 显示延迟信息
-3. **Web 界面**：访问 `http://localhost:8002` 查看实时流量和规则效果
-4. **日志输出**：启动时设置 `--verbose` 查看详细日志
+3. **动作调试信息**：当动作执行出错时，响应头会包含 `X-ActionName-Error` 调试信息：
+   - `X-SetHeader-Error: Error: 具体错误`
+   - `X-MockResponse-Error: Error: 具体错误`
+   - `X-ReplaceBodyJson-Error: Error: 具体错误`
+   - `X-Delay-Error: Error: 具体错误`
+4. **Web 界面**：访问 `http://localhost:8002` 查看实时流量和规则效果
+5. **日志输出**：启动时设置 `--verbose` 查看详细日志
