@@ -846,22 +846,30 @@ class RemoveJsonFieldProcessor(ActionProcessor):
                     for key, value in data.items():
                         # 检查当前键是否匹配任何路径
                         should_remove = False
+                        remaining_paths = []
+                        
                         for path in field_paths:
                             if '.' in path:
-                                # 嵌套路径，检查是否以当前键开头
-                                if path.startswith(key + '.'):
-                                    # 递归处理嵌套路径
-                                    nested_path = path[len(key) + 1:]  # 移除 "key." 前缀
-                                    result[key] = remove_fields_recursive(value, [nested_path])
+                                path_parts = path.split('.')
+                                if len(path_parts) > 0 and path_parts[0] == key:
+                                    remaining_path = '.'.join(path_parts[1:])
+                                    remaining_paths.append(remaining_path)
                                     should_remove = True
-                                    break
+                                else:
+                                    remaining_paths.append(path)
                             else:
-                                # 顶级字段
                                 if key == path:
                                     should_remove = True
+                                    remaining_paths = []
                                     break
+                                else:
+                                    remaining_paths.append(path)
                         
-                        if not should_remove:
+                        if should_remove and remaining_paths:
+                            result[key] = remove_fields_recursive(value, remaining_paths)
+                        elif should_remove and not remaining_paths:
+                            pass
+                        else:
                             result[key] = remove_fields_recursive(value, field_paths)
                     return result
                 elif isinstance(data, list):
@@ -869,34 +877,35 @@ class RemoveJsonFieldProcessor(ActionProcessor):
                     result = []
                     for i, item in enumerate(data):
                         should_remove = False
+                        remaining_paths = []
+                        
                         for path in field_paths:
-                            # 检查是否是数组索引路径
-                            # 情况1: 直接索引路径 (如 "1")
-                            # 情况2: 带点号的索引路径 (如 "0.secret" 用于删除数组中对象的字段)
                             if '.' in path:
                                 path_parts = path.split('.')
-                                if len(path_parts) >= 2:
-                                    try:
-                                        index = int(path_parts[0])
-                                        if i == index:
-                                            # 这是数组中的对象字段删除，递归处理
-                                            nested_path = '.'.join(path_parts[1:])
-                                            result.append(remove_fields_recursive(item, [nested_path]))
-                                            should_remove = True
-                                            break
-                                    except ValueError:
-                                        pass
-                            else:
-                                # 纯数字路径，删除整个数组元素
-                                try:
-                                    index = int(path)
-                                    if i == index:
+                                if len(path_parts) > 0 and path_parts[0].isdigit() and int(path_parts[0]) == i:
+                                    remaining_path = '.'.join(path_parts[1:])
+                                    if remaining_path:
+                                        remaining_paths.append(remaining_path)
                                         should_remove = True
+                                    else:
+                                        should_remove = True
+                                        remaining_paths = []
                                         break
-                                except ValueError:
-                                    pass
+                                else:
+                                    remaining_paths.append(path)
+                            else:
+                                if path.isdigit() and int(path) == i:
+                                    should_remove = True
+                                    remaining_paths = []
+                                    break
+                                else:
+                                    remaining_paths.append(path)
                         
-                        if not should_remove:
+                        if should_remove and remaining_paths:
+                            result.append(remove_fields_recursive(item, remaining_paths))
+                        elif should_remove and not remaining_paths:
+                            pass
+                        else:
                             result.append(remove_fields_recursive(item, field_paths))
                     return result
                 else:
@@ -908,5 +917,6 @@ class RemoveJsonFieldProcessor(ActionProcessor):
             # 更新响应内容
             response.content = json.dumps(obj, ensure_ascii=False).encode('utf-8')
             return True
-        except Exception:
+        except Exception as e:
+            response.headers['X-RemoveJsonField-Error'] = f'Error: {str(e)}'
             return False
