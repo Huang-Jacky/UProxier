@@ -13,6 +13,7 @@ from mitmproxy import http
 
 from uproxier.action_processors import ActionProcessorManager
 from uproxier.exceptions import ConfigInheritanceError, RuleValidationError
+from uproxier.utils.http import get_header_value
 
 logger = logging.getLogger(__name__)
 
@@ -516,7 +517,7 @@ class RulesEngine:
                 modified_response = rule.apply_response_actions(response)
                 if modified_response is not None:
                     try:
-                        existing = modified_response.headers.get('X-Rule-Name') or ''
+                        existing = get_header_value(modified_response.headers, 'X-Rule-Name') or ''
                         if existing:
                             if rule.name not in [s.strip() for s in existing.split('\n')]:
                                 modified_response.headers['X-Rule-Name'] = existing + '\n' + rule.name

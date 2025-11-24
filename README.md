@@ -806,7 +806,7 @@ UProxier/
     ├── action_processors.py # 动作处理器
     ├── config_validator.py # 配置验证器
     ├── exceptions.py   # 异常定义
-    ├── network_utils.py # 网络工具
+    ├── utils/           # 通用工具
     ├── version.py      # 版本信息
     ├── templates/      # Web 模板
     └── examples/       # 内置示例（14个规则示例 + 配置示例）

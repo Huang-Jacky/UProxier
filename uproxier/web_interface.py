@@ -15,7 +15,7 @@ from flask import stream_with_context
 from flask_cors import CORS
 
 from uproxier.version import get_version, get_author
-from uproxier.network_utils import get_local_ip, get_display_host
+from uproxier.utils.network import get_local_ip, get_display_host
 
 logger = logging.getLogger(__name__)
 

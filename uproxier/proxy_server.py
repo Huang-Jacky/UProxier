@@ -18,7 +18,8 @@ from uproxier.certificate_manager import CertificateManager
 from uproxier.exceptions import ProxyStartupError
 from uproxier.rules_engine import RulesEngine, default_config_path
 from uproxier.web_interface import WebInterface
-from uproxier.network_utils import get_display_host
+from uproxier.utils.http import get_header_value
+from uproxier.utils.network import get_display_host
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,9 @@ class ProxyAddon:
 
     def _analyze_response_content(self, headers: Dict[str, Any], content: Optional[bytes]) -> Dict[str, Any]:
         """根据当前 capture 配置分析响应内容与类型，返回结构化结果。"""
-        ct = (headers.get('content-type') or '').lower()
-        te = (headers.get('transfer-encoding') or '').lower()
-        cl = (headers.get('content-length') or '')
+        ct = (get_header_value(headers, 'content-type') or '').lower()
+        te = (get_header_value(headers, 'transfer-encoding') or '').lower()
+        cl = get_header_value(headers, 'content-length') or ''
         enable_streaming = self.capture_config.get('enable_streaming', False)
         enable_large_files = self.capture_config.get('enable_large_files', False)
         large_file_threshold = self.capture_config.get('large_file_threshold', 1048576)
@@ -309,9 +310,9 @@ class ProxyAddon:
         self.request_count += 1
 
         # 记录请求信息（原始）
-        content_type = flow.request.headers.get('content-type', '').lower()
-        transfer_encoding = flow.request.headers.get('transfer-encoding', '').lower()
-        content_length = flow.request.headers.get('content-length', '')
+        content_type = (get_header_value(flow.request.headers, 'content-type') or '').lower()
+        transfer_encoding = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
+        content_length = get_header_value(flow.request.headers, 'content-length') or ''
 
         # 根据配置判断是否启用流媒体抓包
         enable_streaming = self.capture_config.get('enable_streaming', False)
@@ -392,9 +393,9 @@ class ProxyAddon:
             except Exception:
                 pass
             # 计算修改后的预览
-            mod_ct = flow.request.headers.get('content-type', '').lower()
-            mod_te = flow.request.headers.get('transfer-encoding', '').lower()
-            mod_cl = flow.request.headers.get('content-length', '')
+            mod_ct = (get_header_value(flow.request.headers, 'content-type') or '').lower()
+            mod_te = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
+            mod_cl = get_header_value(flow.request.headers, 'content-length') or ''
             mod_is_binary = any(t in mod_ct for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
             mod_is_streaming = self.capture_config.get('enable_streaming', False) and (
                     'chunked' in mod_te or mod_ct.startswith('multipart/'))

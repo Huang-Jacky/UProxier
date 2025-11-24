@@ -24,7 +24,7 @@ from uproxier.rules_engine import RulesEngine, default_config_path
 from uproxier.version import get_version, get_author
 from uproxier.exceptions import ConfigInheritanceError, RuleValidationError, ProxyStartupError
 from uproxier.config_validator import ConfigValidator, ConfigAnalyzer
-from uproxier.network_utils import get_display_host
+from uproxier.utils.network import get_display_host
 from uproxier.examples import list_examples as get_examples, get_example_content, get_readme_content
 console = Console()
 

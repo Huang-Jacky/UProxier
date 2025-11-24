@@ -11,6 +11,7 @@ from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 
 import mitmproxy.http as http
 from uproxier.global_variables import global_vars, process_template_variables, process_template_dict
+from uproxier.utils.http import get_header_value
 
 
 class ActionProcessor(ABC):
@@ -268,7 +269,7 @@ class SetBodyParamProcessor(ActionProcessor):
     def process_request(self, request: http.Request, params: Dict[str, Any]) -> bool:
         """设置请求体参数"""
         try:
-            ctype = request.headers.get('content-type', '').lower()
+            ctype = (get_header_value(request.headers, 'content-type') or '').lower()
             if 'application/x-www-form-urlencoded' in ctype:
                 from urllib.parse import parse_qsl, urlencode
                 body = request.content.decode('utf-8', errors='ignore') if request.content else ''
