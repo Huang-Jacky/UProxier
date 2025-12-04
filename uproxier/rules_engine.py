@@ -519,8 +519,10 @@ class RulesEngine:
                     try:
                         existing = get_header_value(modified_response.headers, 'X-Rule-Name') or ''
                         if existing:
-                            if rule.name not in [s.strip() for s in existing.split('\n')]:
-                                modified_response.headers['X-Rule-Name'] = existing + '\n' + rule.name
+                            names = [s.strip() for s in existing.split(',') if s.strip()]
+                            if rule.name not in names:
+                                names.append(rule.name)
+                            modified_response.headers['X-Rule-Name'] = ', '.join(names)
                         else:
                             modified_response.headers['X-Rule-Name'] = rule.name
                     except Exception as e:
