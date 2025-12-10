@@ -781,6 +781,134 @@
     let isSearching = false;
     let searchQuery = '';
 
+    // IndexedDB 本地缓存：仅在浏览器端使用，服务不可用时兜底展示
+    const DB_NAME = 'uproxier-cache';
+    const DB_VERSION = 2;
+    const DB_STORE_REQUESTS = 'requests';
+    const DB_STORE_META = 'meta';
+
+    function isIDBSupported() {
+        return typeof indexedDB !== 'undefined';
+    }
+
+    function openRequestDB() {
+        return new Promise((resolve, reject) => {
+            if (!isIDBSupported()) return resolve(null);
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(DB_STORE_REQUESTS)) {
+                    db.createObjectStore(DB_STORE_REQUESTS, {keyPath: 'id'});
+                }
+                if (!db.objectStoreNames.contains(DB_STORE_META)) {
+                    db.createObjectStore(DB_STORE_META, {keyPath: 'key'});
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    function waitTx(tx) {
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onabort = tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async function saveRequestsToDB(items) {
+        if (!Array.isArray(items) || items.length === 0) return;
+        try {
+            const db = await openRequestDB();
+            if (!db) return;
+            const tx = db.transaction(DB_STORE_REQUESTS, 'readwrite');
+            const store = tx.objectStore(DB_STORE_REQUESTS);
+            for (const it of items) {
+                if (it && it.id != null) {
+                    store.put(it);
+                }
+            }
+            await waitTx(tx);
+        } catch (e) {
+            console.debug('缓存请求到 IndexedDB 失败', e);
+        }
+    }
+
+    async function getRequestFromDB(id) {
+        try {
+            const db = await openRequestDB();
+            if (!db) return null;
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction(DB_STORE_REQUESTS, 'readonly');
+                const store = tx.objectStore(DB_STORE_REQUESTS);
+                const req = store.get(id);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async function clearDBStores() {
+        try {
+            const db = await openRequestDB();
+            if (!db) return;
+            const tx = db.transaction([DB_STORE_REQUESTS, DB_STORE_META], 'readwrite');
+            tx.objectStore(DB_STORE_REQUESTS).clear();
+            tx.objectStore(DB_STORE_META).clear();
+            await waitTx(tx);
+        } catch (e) {
+            console.debug('清空 IndexedDB 失败', e);
+        }
+    }
+
+    function generateSessionId() {
+        try {
+            const rnd = crypto.getRandomValues(new Uint32Array(2));
+            return `${Date.now()}-${rnd[0].toString(16)}-${rnd[1].toString(16)}`;
+        } catch (_) {
+            return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+    }
+
+    async function setSessionId(sessionId) {
+        try {
+            const db = await openRequestDB();
+            if (!db) return;
+            const tx = db.transaction(DB_STORE_META, 'readwrite');
+            tx.objectStore(DB_STORE_META).put({key: 'sessionId', value: sessionId});
+            await waitTx(tx);
+        } catch (e) {
+            console.debug('写入 sessionId 失败', e);
+        }
+    }
+
+    async function getSessionId() {
+        try {
+            const db = await openRequestDB();
+            if (!db) return null;
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction(DB_STORE_META, 'readonly');
+                const store = tx.objectStore(DB_STORE_META);
+                const req = store.get('sessionId');
+                req.onsuccess = () => resolve((req.result && req.result.value) || null);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async function ensureFreshSession() {
+        await clearDBStores();
+
+        // 生成本次会话 ID，存到 sessionStorage + IndexedDB
+        const sessionId = generateSessionId();
+        sessionStorage.setItem('uproxier-session', sessionId);
+        await setSessionId(sessionId);
+    }
+
     function getResourceType(url, content_type = null, method = 'GET') {
         const path = url.split('?')[0].toLowerCase();
         const extension = path.split('.').pop();
@@ -848,8 +976,13 @@
         }, 3000);
     }
 
-    // 页面加载完成后初始化
-    document.addEventListener('DOMContentLoaded', function () {
+    // 页面加载完成后初始化：先清缓存并设置会话，再启动 SSE
+    document.addEventListener('DOMContentLoaded', async function () {
+        try {
+            await ensureFreshSession();
+        } catch (e) {
+            console.debug('初始化本地缓存失败', e);
+        }
         startHeartbeat();
         startStreams();
     });
@@ -938,6 +1071,7 @@
         if (currentData.length > 100) {
             currentData = currentData.slice(-100);
         }
+        saveRequestsToDB(items);
     }
 
     function matchesSearch(item, keyword) {
@@ -1105,21 +1239,38 @@
 
     // 显示请求详情
     async function showRequestDetail(requestId) {
+        let requestDetail = null;
+        let apiOk = false;
         try {
             const response = await fetch(`/api/request/${requestId}`);
-            const requestDetail = await response.json();
+            const json = await response.json();
 
             if (response.ok) {
-                currentRequestDetail = requestDetail;
-                displayRequestDetail(requestDetail);
-                const modal = new bootstrap.Modal(document.getElementById('requestDetailModal'));
-                modal.show();
+                requestDetail = json;
+                apiOk = true;
+                // 缓存最新的详情数据
+                saveRequestsToDB([requestDetail]);
             } else {
-                showToast('错误', '获取请求详情失败: ' + (requestDetail.error || '未知错误'), 'error');
+                throw new Error(json.error || '获取请求详情失败');
             }
         } catch (error) {
             console.error('获取请求详情失败:', error);
-            showToast('错误', '获取请求详情失败', 'error');
+            // API 失败时从本地缓存兜底
+            requestDetail = await getRequestFromDB(requestId);
+            if (!requestDetail) {
+                showToast('错误', '获取请求详情失败', 'error');
+                return;
+            }
+        }
+
+        try {
+            currentRequestDetail = requestDetail;
+            displayRequestDetail(requestDetail);
+            const modal = new bootstrap.Modal(document.getElementById('requestDetailModal'));
+            modal.show();
+        } catch (e) {
+            console.error('展示请求详情失败:', e);
+            showToast('错误', '展示请求详情失败', 'error');
         }
     }
 
@@ -1364,39 +1515,53 @@
         }
     }
 
+    async function resetLocalTrafficState() {
+        // 清空前端状态
+        currentData = [];
+        isSearching = false;
+        searchQuery = '';
+        document.getElementById('search-input').value = '';
+
+        // 清空浏览器缓存（IndexedDB）并重置会话
+        await clearDBStores();
+        try {
+            const sessionId = generateSessionId();
+            sessionStorage.setItem('uproxier-session', sessionId);
+            await setSessionId(sessionId);
+        } catch (e) {
+            console.debug('重置会话 ID 失败', e);
+        }
+
+        // 清空表格和统计
+        updateTrafficTable([]);
+        updateStats({
+            total_requests: 0,
+            completed_requests: 0,
+            pending_requests: 0,
+            error_requests: 0
+        });
+    }
+
     // 清空流量
     async function clearTraffic() {
-        if (confirm('确定要清空所有流量数据吗？')) {
-            try {
-                const response = await fetch('/api/clear', {method: 'POST'});
-                const result = await response.json();
+        if (!confirm('确定要清空所有流量数据吗？')) return;
 
-                if (result.success) {
-                    // 清空前端状态
-                    currentData = [];
-                    isSearching = false;
-                    searchQuery = '';
-                    document.getElementById('search-input').value = '';
+        let serverCleared = false;
+        try {
+            const response = await fetch('/api/clear', {method: 'POST'});
+            const result = await response.json();
+            serverCleared = !!(response.ok && result.success);
+        } catch (error) {
+            console.debug('服务端清空失败，转为本地清空', error);
+        }
 
-                    // 清空表格和统计
-                    updateTrafficTable([]);
-                    updateStats({
-                        total_requests: 0,
-                        completed_requests: 0,
-                        pending_requests: 0,
-                        error_requests: 0
-                    });
+        // 无论服务端是否可达，先清本地
+        await resetLocalTrafficState();
 
-                    // 显示成功提示
-                    showToast('成功', '流量数据已清空！', 'success');
-                    console.log('流量数据已清空');
-                } else {
-                    showToast('失败', '清空失败: ' + result.message, 'error');
-                }
-            } catch (error) {
-                console.error('清空数据失败:', error);
-                showToast('错误', '清空数据失败: ' + error.message, 'error');
-            }
+        if (serverCleared) {
+            showToast('成功', '流量数据已清空！', 'success');
+        } else {
+            showToast('成功', '本地数据已清空', 'success');
         }
     }
 
