@@ -251,6 +251,18 @@
             filter: invert(1);
         }
 
+        .modal-header .btn-outline-light {
+            border-color: rgba(255, 255, 255, 0.3);
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-header .btn-outline-light:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+            color: white;
+        }
+
         .nav-tabs {
             border-bottom: 1px solid #e2e8f0;
         }
@@ -272,6 +284,35 @@
         .nav-tabs .nav-link:hover {
             background: #f1f5f9;
             color: #374151;
+        }
+
+        /* 复制 curl 按钮样式 */
+        .copy-curl-nav-btn {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            color: #6b7280;
+            transition: all 0.2s ease;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .copy-curl-nav-btn:hover {
+            background: #f1f5f9;
+            color: #3b82f6;
+        }
+
+        .copy-curl-nav-btn svg {
+            margin-right: 4px;
+            opacity: 0.8;
+        }
+
+        .copy-curl-nav-btn:hover svg {
+            opacity: 1;
+        }
+
+        .nav-tabs .ms-auto {
+            margin-left: auto;
         }
 
         /* 内容区域样式 */
@@ -714,7 +755,15 @@
                                 type="button" role="tab">响应详情
                         </button>
                     </li>
-
+                    <li class="nav-item ms-auto" role="presentation">
+                        <button class="nav-link copy-curl-nav-btn" onclick="copyAsCurl()" id="copy-curl-btn" type="button" style="border: none; background: transparent; cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 4px; vertical-align: middle;">
+                                <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+                                <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+                            </svg>
+                            <span>复制为 curl</span>
+                        </button>
+                    </li>
                 </ul>
                 <div class="tab-content" id="detailTabContent">
                     <div class="tab-pane fade show active" id="overview" role="tabpanel">
@@ -1480,6 +1529,184 @@
                 .replace(/'/g, '&#39;');
         } catch (_) {
             return '';
+        }
+    }
+
+    // 生成 curl 命令
+    function generateCurlCommand(requestDetail) {
+        if (!requestDetail) {
+            return '';
+        }
+
+        const method = requestDetail.method || 'GET';
+        const url = requestDetail.url || '';
+        
+        // 获取请求头（优先使用修改后的）
+        const headers = requestDetail.modified_headers || requestDetail.headers || {};
+        
+        // 获取请求体（优先使用修改后的）
+        let body = '';
+        if (requestDetail.modified_content != null && requestDetail.modified_content !== '') {
+            body = requestDetail.modified_content;
+        } else if (requestDetail.content) {
+            body = requestDetail.content;
+        }
+
+        let curlCmd = `curl -X ${method}`;
+
+        const escapedUrl = url.replace(/'/g, "'\\''");
+        curlCmd += ` '${escapedUrl}'`;
+
+        const excludeHeaders = ['host', 'content-length', 'connection', 'transfer-encoding'];
+        for (const [name, value] of Object.entries(headers)) {
+            const headerName = String(name).toLowerCase();
+            if (!excludeHeaders.includes(headerName)) {
+                const escapedValue = String(value).replace(/'/g, "'\\''");
+                curlCmd += ` \\\n  -H '${name}: ${escapedValue}'`;
+            }
+        }
+
+        if (body && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+            // 检查是否是二进制内容
+            if (requestDetail.is_binary || body.includes('[BINARY]') || body.includes('[STREAMING]') || body.includes('[LARGE_FILE]')) {
+                curlCmd += ` \\\n  --data-binary '[BINARY_DATA]'`;
+            } else {
+                let escapedBody = String(body);
+                escapedBody = escapedBody.replace(/'/g, "'\\''");
+                escapedBody = escapedBody.replace(/\n/g, '\\n');
+                curlCmd += ` \\\n  --data-raw '${escapedBody}'`;
+            }
+        }
+
+        return curlCmd;
+    }
+
+    // 复制为 curl 命令
+    async function copyAsCurl() {
+        if (!currentRequestDetail) {
+            showToast('错误', '没有可用的请求详情', 'error');
+            return;
+        }
+
+        try {
+            const curlCmd = generateCurlCommand(currentRequestDetail);
+            if (!curlCmd) {
+                showToast('错误', '无法生成 curl 命令', 'error');
+                return;
+            }
+
+            console.log('生成的 curl 命令:', curlCmd);
+            console.log('命令长度:', curlCmd.length);
+
+            const textArea = document.createElement('textarea');
+            textArea.value = curlCmd;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '0';
+            textArea.style.top = '0';
+            textArea.style.width = '2em';
+            textArea.style.height = '2em';
+            textArea.style.padding = '0';
+            textArea.style.border = 'none';
+            textArea.style.outline = 'none';
+            textArea.style.boxShadow = 'none';
+            textArea.style.background = 'transparent';
+            textArea.setAttribute('readonly', '');
+            document.body.appendChild(textArea);
+            
+            textArea.focus();
+            textArea.select();
+            textArea.setSelectionRange(0, curlCmd.length);
+            
+            let copied = false;
+            let copyMethod = '';
+            
+            // 优先尝试 Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(curlCmd);
+                    // 验证复制是否成功
+                    try {
+                        const clipboardText = await navigator.clipboard.readText();
+                        if (clipboardText === curlCmd) {
+                            copied = true;
+                            copyMethod = 'Clipboard API';
+                            console.log('使用 Clipboard API 复制成功，已验证');
+                        } else {
+                            console.warn('Clipboard API 复制后验证失败，内容不匹配');
+                        }
+                    } catch (verifyError) {
+                        copied = true;
+                        copyMethod = 'Clipboard API (未验证)';
+                        console.log('使用 Clipboard API 复制（无法验证）');
+                    }
+                } catch (clipboardError) {
+                    console.warn('Clipboard API 失败，尝试 execCommand:', clipboardError);
+                }
+            }
+            
+            if (!copied) {
+                try {
+                    // 确保 textarea 仍然被选中
+                    textArea.focus();
+                    textArea.select();
+                    textArea.setSelectionRange(0, curlCmd.length);
+                    
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        copied = true;
+                        copyMethod = 'execCommand';
+                        console.log('使用 execCommand 复制成功');
+                    } else {
+                        throw new Error('execCommand 返回 false');
+                    }
+                } catch (execError) {
+                    console.error('execCommand 复制失败:', execError);
+                    document.body.removeChild(textArea);
+                    const modal = document.createElement('div');
+                    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:20px;border:2px solid #333;border-radius:8px;z-index:10000;max-width:90%;max-height:80%;overflow:auto;box-shadow:0 4px 20px rgba(0,0,0,0.3);';
+                    modal.innerHTML = `
+                        <h4 style="margin-top:0;margin-bottom:15px;">curl 命令（请手动复制）</h4>
+                        <textarea readonly id="curl-cmd-textarea" style="width:100%;min-height:200px;font-family:monospace;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:12px;white-space:pre-wrap;word-wrap:break-word;">${escapeHtml(curlCmd)}</textarea>
+                        <div style="margin-top:15px;text-align:right;">
+                            <button onclick="this.closest('div').remove()" style="padding:8px 16px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;">关闭</button>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    const textarea = modal.querySelector('#curl-cmd-textarea');
+                    setTimeout(() => {
+                        textarea.focus();
+                        textarea.select();
+                    }, 100);
+                    showToast('提示', '请手动复制上方显示的 curl 命令', 'info');
+                    return;
+                }
+            }
+            
+            document.body.removeChild(textArea);
+            
+            if (copied) {
+                console.log(`复制成功，使用方法: ${copyMethod}`);
+                showToast('成功', 'curl 命令已复制到剪贴板', 'success');
+                
+                const btn = document.getElementById('copy-curl-btn');
+                if (btn) {
+                    const btnSpan = btn.querySelector('span');
+                    if (btnSpan) {
+                        const originalText = btnSpan.textContent;
+                        btnSpan.textContent = '已复制！';
+                        btn.style.color = '#10b981';
+                        setTimeout(() => {
+                            btnSpan.textContent = originalText;
+                            btn.style.color = '';
+                        }, 2000);
+                    }
+                }
+            } else {
+                showToast('错误', '复制失败，请检查浏览器权限', 'error');
+            }
+        } catch (error) {
+            console.error('复制 curl 命令失败:', error);
+            showToast('错误', '复制失败: ' + error.message, 'error');
         }
     }
 
