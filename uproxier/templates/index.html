@@ -1378,7 +1378,7 @@
                 
             `;
 
-        // 请求详情：只展示最终（规则应用后）结果；若无修改则回退原始
+        // 请求详情：只展示最终（规则应用后）结果；若无修改则回退原始。顶部展示请求阶段命中（参考响应详情的规则/延迟展示）
         const finalReqHeaders = requestDetail.modified_headers || requestDetail.headers || {};
         let finalReqContent = (requestDetail.modified_content != null && requestDetail.modified_content !== '') ? requestDetail.modified_content : (requestDetail.content || '');
         // GET 等无请求体时，展示 URL 查询参数
@@ -1395,7 +1395,14 @@
             } catch (e) {
             }
         }
+        const reqRulePills = requestDetail.request_rules_applied && requestDetail.request_rules_applied.length
+            ? requestDetail.request_rules_applied.map(r => `<span class="kv-pill rule" title="命中规则">Rule: ${escapeHtml(r.trim())}</span>`).join(' ')
+            : '';
+        const reqMarks = reqRulePills ? `<div class="mb-2">${reqRulePills}</div>` : '';
+        const modifiedUrlLine = requestDetail.modified_url ? `<div class="mb-2"><strong>改写后 URL:</strong> <small class="text-muted url-break">${escapeHtml(requestDetail.modified_url)}</small></div>` : '';
         document.getElementById('request-content').innerHTML = `
+                ${reqMarks}
+                ${modifiedUrlLine}
                 <h6 class="mb-2">请求头</h6>
                 <div class="headers-viewer request-headers">${formatHeaders(finalReqHeaders)}</div>
                 <h6 class="mt-3 mb-2">请求内容</h6>

@@ -308,6 +308,11 @@ class ProxyAddon:
             return
 
         self.request_count += 1
+        # 将当前请求的 ID 绑定到 flow.metadata，便于响应阶段精确匹配
+        try:
+            flow.metadata["uproxier_request_id"] = self.request_count
+        except Exception:
+            pass
 
         # 记录请求信息（原始）
         content_type = (get_header_value(flow.request.headers, 'content-type') or '').lower()
@@ -362,10 +367,12 @@ class ProxyAddon:
             'status': 'pending'
         }
 
-        modified_request = self.rules_engine.apply_request_rules(flow.request)
+        modified_request, applied_rule_names = self.rules_engine.apply_request_rules(flow.request)
         if modified_request:
             flow.request = modified_request
             request_info['modified'] = True
+            request_info['request_rules_applied'] = applied_rule_names
+            request_info['modified_url'] = flow.request.pretty_url
             # 若请求阶段配置了短路直返响应，则直接返回
             try:
                 sc_resp = getattr(flow.request, 'short_circuit_response', None)
@@ -468,10 +475,24 @@ class ProxyAddon:
         end_time = time.time()
 
         request_info = None
-        for req in self.traffic_data:
-            if req['url'] == flow.request.pretty_url and req['status'] == 'pending':
-                request_info = req
-                break
+        # 优先使用 request_id 进行精确匹配，兼容 URL 被 rewrite/redirect 的场景
+        req_id = None
+        try:
+            req_id = flow.metadata.get("uproxier_request_id")
+        except Exception:
+            req_id = None
+
+        if req_id is not None:
+            for req in self.traffic_data:
+                if req.get('id') == req_id:
+                    request_info = req
+                    break
+                
+        if request_info is None:
+            for req in self.traffic_data:
+                if req.get('url') == flow.request.pretty_url and req.get('status') == 'pending':
+                    request_info = req
+                    break
 
         if request_info:
             # 在应用响应规则前，先快照原始响应（用于对比展示）
@@ -626,19 +647,26 @@ class ProxyAddon:
         """处理错误"""
         logger.error(f"代理错误: {flow.error}")
 
-        # 更新请求状态为错误
-        for req in self.traffic_data:
-            if req['url'] == flow.request.pretty_url and req['status'] == 'pending':
-                req.update({
-                    'status': 'error',
-                    'error': str(flow.error),
-                    'error_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
-                break
-
-        self._maybe_persist(
-            next((r for r in self.traffic_data if r['url'] == flow.request.pretty_url and r['status'] == 'error'),
-                 None))
+        # 更新请求状态为错误（优先用 request_id 匹配，兼容 rewrite/redirect 后 URL 变化）
+        req_id = flow.metadata.get("uproxier_request_id") if hasattr(flow.metadata, 'get') else None
+        target = None
+        if req_id is not None:
+            for req in self.traffic_data:
+                if req.get('id') == req_id:
+                    target = req
+                    break
+        if target is None:
+            for req in self.traffic_data:
+                if req.get('url') == flow.request.pretty_url and req.get('status') == 'pending':
+                    target = req
+                    break
+        if target is not None:
+            target.update({
+                'status': 'error',
+                'error': str(flow.error),
+                'error_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            self._maybe_persist(target)
 
     def _maybe_persist(self, record: Optional[Dict[str, Any]]) -> None:
         if not record or not self.save_path:

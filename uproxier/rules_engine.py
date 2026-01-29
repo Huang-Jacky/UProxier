@@ -6,7 +6,7 @@ import os
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Any, DefaultDict
+from typing import Dict, List, Optional, Any, DefaultDict, Tuple
 
 import yaml
 from mitmproxy import http
@@ -156,19 +156,19 @@ class Rule:
         """获取规则的路径前缀，用于索引优化"""
         return getattr(self, '_path_prefix', None)
 
-    def apply_request_actions(self, request: http.Request) -> Optional[http.Request]:
-        """应用请求动作（仅通用 DSL 的 request_pipeline）"""
-        modified = False
+    def apply_request_actions(self, request: http.Request) -> Tuple[Optional[http.Request], List[str]]:
+        """应用请求动作"""
+        applied: List[str] = []
 
         for step in self.request_pipeline:
             action = step.get('action')
             params = step.get('params', {})
 
-            # 使用动作处理器处理
             if self.action_manager.process_request_action(action, request, params):
-                modified = True
+                if action:
+                    applied.append(action)
 
-        return request if modified else None
+        return (request, applied) if applied else (None, [])
 
     def apply_response_actions(self, response: http.Response) -> Optional[http.Response]:
         """应用响应动作"""
@@ -458,8 +458,8 @@ class RulesEngine:
                         suggestions=suggestions
                     )
 
-    def apply_request_rules(self, request: http.Request) -> Optional[http.Request]:
-        """应用请求规则，支持命中后停止(stop_after_match)与多规则叠加"""
+    def apply_request_rules(self, request: http.Request) -> Tuple[Optional[http.Request], List[str]]:
+        """应用请求规则，支持命中后停止(stop_after_match)与多规则叠加，返回 (修改后的请求, 已命中的规则名列表)"""
         candidates: List[Rule] = []
         host_l = request.pretty_host.lower() if hasattr(request, 'pretty_host') else ''
         path = request.path if hasattr(request, 'path') else ''
@@ -482,16 +482,18 @@ class RulesEngine:
                 seen.add(id(r))
 
         result_request: Optional[http.Request] = None
+        applied_rule_names: List[str] = []
         for rule in ordered:
             if rule.match(request):
                 if not self.silent:
                     logger.debug(f"应用请求规则: {rule.name}")
-                modified_request = rule.apply_request_actions(request)
+                modified_request, actions = rule.apply_request_actions(request)
                 if modified_request is not None:
                     result_request = modified_request
+                    applied_rule_names.append(rule.name)
                     if getattr(rule, 'stop_after_match', False):
                         break
-        return result_request
+        return (result_request, applied_rule_names)
 
     def apply_response_rules(self, response: http.Response) -> Optional[http.Response]:
         """应用响应规则，支持命中后停止(stop_after_match)与多规则叠加"""
