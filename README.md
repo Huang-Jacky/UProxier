@@ -341,14 +341,18 @@ capture:
 
 生效规则（自上而下）：
 
-- 若匹配到 exclude 中任一条件，则不捕获（优先级高于 include，即当 include/exclude 冲突时，以 exclude 为准）。
+- 若匹配到 exclude 中任意一个条件，则不捕获、不执行规则。
+  - 不做 HTTPS 解密（TLS 直通）仅对 exclude.hosts 生效对应域名的 HTTPS 不解密、直接透传。
+  - exclude.paths / exclude.methods 仅影响捕获与规则。
 - 若 include 全为空（未配置 hosts/paths/methods），默认捕获全部请求。
 - 若 include 配置了任一类（hosts/paths/methods），只要命中任一类即捕获；三类都未命中则不捕获。
 
 说明：
 
-- hosts、paths 支持正则；hosts 大小写不敏感，paths 大小写敏感。
+- hosts、paths 支持正则；**hosts 还支持通配符**：写 `*.apple.com`、`*cdn-apple*` 等（`*` 匹配任意、`?` 匹配单字符、`.` 为字面点），含 `\`、`^`、`$` 时按正则处理；hosts 大小写不敏感，paths 大小写敏感。
 - methods 自动转为大写进行匹配。
+
+**App Store / iTunes 打不开时**：1）启动必须用 `--config /path/to/你的配置.yaml`，否则会读默认路径（如 `~/.uproxier/config.yaml`），exclude 可能未生效；2）exclude.hosts 需覆盖 App Store 会用到的域名，建议至少包含：`.*\\.apple\\.com$`、`.*\\.cdn-apple\\.com$`（如 store.storeimages.cdn-apple.com）、`.*\\.itunes\\.apple\\.com$`、`.*\\.icloud\\.com$`、`.*\\.mzstatic\\.com$`、`.*\\.aaplimg\\.com$`；3）不加 `-s` 启动时，若 TLS 直通生效会在控制台看到 `TLS 直通（exclude.hosts）: xxx`，若无该日志说明配置未加载或域名未命中。
 
 ```
 action: <行为名>

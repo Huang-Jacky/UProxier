@@ -10,7 +10,21 @@ capture:
     paths: [ ]
     methods: [ "GET", "POST" ]
   exclude:
-    hosts: [ ".*\\.google\\.com$", ".*\\.googleapis\\.com$", ".*\\.gstatic\\.com$" ]
+    # 命中 exclude 的请求：不捕获、不执行规则；exclude.hosts 会同时加入 TLS 直通（不解密，直接透传）
+    # 启动时请用 --config 指定本配置，否则会读默认路径可能没有 exclude
+    # hosts 支持通配符：*.apple.com、*cdn-apple* 等（* ? . 按通配符；含 \ ^ $ 则按正则）
+    hosts:
+      - "*.google.com"
+      - "*.googleapis.com"
+      - "*.gstatic.com"
+      # Apple / App Store / iTunes 放行（通配符写法）
+      - "*.apple.com"
+      - "*.cdn-apple.com"
+      - "*.itunes.apple.com"
+      - "*.icloud.com"
+      - "*api-adservices*"
+      - "*.mzstatic.com"
+      - "*.aaplimg.com"
     paths: [ ]
     methods: [ ]
 

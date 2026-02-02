@@ -12,6 +12,7 @@ from typing import Dict, Optional, Any, List
 
 from mitmproxy import http
 from mitmproxy import options
+from mitmproxy import tls as mitm_tls
 from mitmproxy.tools.dump import DumpMaster
 
 from uproxier.certificate_manager import CertificateManager
@@ -178,6 +179,25 @@ class ProxyAddon:
         except Exception:
             return config
 
+    @staticmethod
+    def _host_pattern_to_regex(pat: str) -> str:
+        """将 host 配置转为正则：若含 \\、^、$ 则视为正则；否则按通配符 * ? 转为正则。"""
+        import re as _re
+        s = str(pat).strip()
+        if "\\" in s or (s.startswith("^") or s.endswith("$")):
+            return s
+        out = []
+        for c in s:
+            if c == "*":
+                out.append(".*")
+            elif c == "?":
+                out.append(".")
+            elif c == ".":
+                out.append(r"\.")
+            else:
+                out.append(c)
+        return "^" + "".join(out) + "$"
+
     def _compile_capture_filters(self) -> None:
         cfg = self.capture_config or {}
         inc = (cfg.get('include') or {})
@@ -194,7 +214,8 @@ class ProxyAddon:
         self._inc_hosts = []
         for pat in _to_list(inc.get('hosts')):
             try:
-                self._inc_hosts.append(_re.compile(str(pat), _re.IGNORECASE))
+                regex = self._host_pattern_to_regex(pat)
+                self._inc_hosts.append(_re.compile(regex, _re.IGNORECASE))
             except Exception:
                 pass
         self._inc_paths = []
@@ -207,7 +228,8 @@ class ProxyAddon:
         self._exc_hosts = []
         for pat in _to_list(exc.get('hosts')):
             try:
-                self._exc_hosts.append(_re.compile(str(pat), _re.IGNORECASE))
+                regex = self._host_pattern_to_regex(pat)
+                self._exc_hosts.append(_re.compile(regex, _re.IGNORECASE))
             except Exception:
                 pass
         self._exc_paths = []
@@ -285,6 +307,19 @@ class ProxyAddon:
                 continue
         return False
 
+    def tls_clienthello(self, data: mitm_tls.ClientHelloData) -> None:
+        """TLS ClientHello：若 SNI 命中 exclude.hosts 则不解密，直接透传（解决 ignore_hosts 不可靠的问题）"""
+        try:
+            sni = (data.client_hello.sni or "").strip()
+            if not sni:
+                return
+            if self._exc_hosts and self._matches_any_pattern(sni, self._exc_hosts):
+                data.ignore_connection = True
+                if not self.silent:
+                    logger.info("TLS 直通（exclude.hosts）: %s", sni)
+        except Exception:
+            pass
+
     def request(self, flow: http.HTTPFlow) -> None:
         """处理请求"""
         # 跳过对内部 Web 端口的拦截（包括二维码链接）
@@ -297,7 +332,7 @@ class ProxyAddon:
             pass
         start_time = time.time()
 
-        # 先判定是否需要捕获；命中 exclude 则完全跳过规则与记录，仅透传
+        # 先判定是否需要捕获；命中 exclude 则不捕获、不执行规则，对应域名也不做 TLS 解密，直接透传
         try:
             capture_this = self._should_capture(flow.request)
             flow.metadata["uproxier_capture"] = bool(capture_this)
@@ -790,13 +825,38 @@ class ProxyServer:
 
             # 配置 mitmproxy（固定监听地址）
             host = DEFAULT_HOST
+            # TLS 直通域名（不解密）：仅用 exclude.hosts，不捕获、不执行规则、也不解密
+            # mitmproxy 的 ignore_hosts 匹配的是 "host:port"（如 apps.apple.com:443），需先转成正则再末尾允许 :port
+            ignore_hosts: List[str] = []
+            try:
+                import yaml
+                config_path = Path(self.config_path)
+                if config_path.exists():
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        cfg = yaml.safe_load(f) or {}
+                    exc = ((cfg or {}).get('capture') or {}).get('exclude') or {}
+                    exc_hosts = exc.get('hosts')
+                    raw = []
+                    if isinstance(exc_hosts, list):
+                        raw = [str(p) for p in exc_hosts if p]
+                    elif exc_hosts:
+                        raw = [str(exc_hosts)]
+                    for p in raw:
+                        # 先按 addon 同一逻辑把通配符/正则转成 host 正则，再为 ignore_hosts 加上 :port 后缀
+                        regex_host = ProxyAddon._host_pattern_to_regex(p.rstrip())
+                        base = regex_host.rstrip('$')
+                        ignore_hosts.append(base + r'(:[0-9]+)?$')
+            except Exception:
+                ignore_hosts = []
+
             if enable_https:
                 opts = options.Options(
                     listen_host=host,
                     listen_port=port,
                     confdir=str(self.cert_manager.cert_dir),
                     ssl_insecure=True,
-                    http2=False
+                    http2=False,
+                    ignore_hosts=ignore_hosts
                 )
             else:
                 # 不拦截 TLS：通过 ignore_hosts 将 TLS 连接直通（不解密）
