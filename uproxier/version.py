@@ -3,7 +3,7 @@
 
 from functools import lru_cache
 
-__version__ = "0.1.15"
+__version__ = "0.1.16"
 __author__ = "JackyHuang"
 _PACKAGE_NAME = "uproxier"
 
