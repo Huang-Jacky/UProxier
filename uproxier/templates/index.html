@@ -11,12 +11,17 @@
             background: #f8fafc;
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
         }
 
         /* 导航栏样式 */
         .navbar {
             background: #1e293b !important;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1050;
         }
 
         /* 顶栏图标按钮 */
@@ -53,65 +58,6 @@
 
         .navbar-brand {
             font-weight: 600;
-        }
-
-        /* 紧凑统计栏样式 */
-        .stats-bar {
-            background: white;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-
-        .stats-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            white-space: nowrap;
-        }
-
-        .stats-label {
-            font-size: 0.875rem;
-            color: #64748b;
-            font-weight: 500;
-        }
-
-        .stats-value {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .stats-value.success {
-            color: #10b981;
-        }
-
-        .stats-value.warning {
-            color: #f59e0b;
-        }
-
-        .stats-value.danger {
-            color: #ef4444;
-        }
-
-        /* 响应式调整 */
-        @media (max-width: 768px) {
-            .stats-bar {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 0.75rem;
-            }
-
-            .stats-item {
-                width: 100%;
-                justify-content: space-between;
-            }
         }
 
         /* 表格样式 */
@@ -163,6 +109,87 @@
             white-space: nowrap;
             text-overflow: ellipsis;
             word-break: break-all;
+        }
+
+        /* 主内容区占满导航栏以下剩余高度 */
+        .main-page-fill {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 工具栏固定在导航栏下方，数据刷新仅影响下方列表区域 */
+        .toolbar-sticky {
+            position: sticky;
+            top: var(--navbar-sticky-height, 56px);
+            z-index: 1040;
+            background: #f8fafc;
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 0.5rem !important;
+        }
+
+        /* 仅压缩主工具栏，不影响其他按钮/输入 */
+        .toolbar-sticky .form-control,
+        .toolbar-sticky .btn,
+        .toolbar-sticky .form-select {
+            height: 34px;
+            font-size: 0.875rem;
+        }
+
+        .toolbar-sticky .btn {
+            padding: 0.35rem 0.75rem;
+        }
+
+        .toolbar-sticky .form-control {
+            padding: 0.35rem 0.6rem;
+        }
+
+        .toolbar-sticky .form-select {
+            padding-top: 0.2rem;
+            padding-bottom: 0.2rem;
+            padding-left: 0.5rem;
+            padding-right: 1.8rem;
+        }
+
+        .toolbar-sticky .form-label {
+            font-size: 0.8rem;
+        }
+
+        /* 表格区域吃掉统计栏、工具栏以下的全部空间 */
+        .traffic-list-grow {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 列表独立滚动：高度随可视区域变化，便于「智能跟随」判断是否在底部 */
+        .traffic-table-scroll {
+            flex: 1 1 auto;
+            min-height: 200px;
+            max-height: none;
+            overflow-y: auto;
+            overflow-x: auto;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .traffic-table-scroll .traffic-table {
+            border-radius: 0;
+            border: none;
+            box-shadow: none;
+        }
+
+        .traffic-table-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.12);
         }
 
         /* 按钮样式 */
@@ -672,31 +699,9 @@
     </div>
 </nav>
 
-<div class="container-fluid mt-3">
-    <!-- 紧凑统计栏 -->
-    <div class="row mb-3" id="stats-bar">
-        <div class="col-12">
-            <div class="stats-bar">
-                <div class="stats-item">
-                    <span class="stats-label">总请求:</span>
-                    <span class="stats-value" id="total-requests">0</span>
-                </div>
-                <div class="stats-item">
-                    <span class="stats-label">已完成:</span>
-                    <span class="stats-value success" id="completed-requests">0</span>
-                </div>
-                <div class="stats-item">
-                    <span class="stats-label">进行中:</span>
-                    <span class="stats-value warning" id="pending-requests">0</span>
-                    <span class="stats-label">错误:</span>
-                    <span class="stats-value danger" id="error-requests">0</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
+<div class="container-fluid main-page-fill mt-3 pb-3">
     <!-- 工具栏 -->
-    <div class="row mb-3">
+    <div class="row mb-3 toolbar-sticky">
         <div class="col-md-6">
             <div class="input-group">
                 <input type="text" class="form-control" id="search-input" placeholder="搜索请求...">
@@ -717,8 +722,9 @@
         </div>
     </div>
 
-    <!-- 流量表格 -->
-    <div class="table-responsive">
+    <!-- 流量表格：外层 flex 伸展以占满剩余视口高度 -->
+    <div class="traffic-list-grow">
+    <div id="traffic-table-scroll" class="traffic-table-scroll" role="region" aria-label="请求记录列表">
         <table class="table table-striped table-hover traffic-table">
             <thead class="table-dark">
             <tr>
@@ -734,6 +740,7 @@
             <tbody id="traffic-tbody">
             </tbody>
         </table>
+    </div>
     </div>
 </div>
 
@@ -833,6 +840,8 @@
 
 <script>
     let currentData = [];
+    /** upsert 因超过显示条数从数组头部丢弃的行数，用于暂停跟随时修正 scrollTop（满窗时 slice(-cap)） */
+    let lastTrafficTrimFromTop = 0;
     let updateInterval;
     let currentRequestDetail = null;
     let isSearching = false;
@@ -854,6 +863,177 @@
     }
 
     trafficDisplayLimit = loadTrafficDisplayLimit();
+
+    /**
+     * 跟随最新（需求）：
+     * 1) 默认有新数据就滚到列表底部；
+     * 2) 用户把列表滚离底部 → 暂停跟随；
+     * 3) 用户再滚回底部附近 → 恢复跟随。
+     * userPausedTail：true = 用户已暂停跟随。
+     * followLatestIgnoreScroll：tbody 重绘 / 恢复 scrollTop 期间忽略 scroll，避免误判。
+     * tailScrollProgrammatic：正在执行 scrollTrafficTableToBottom（含其内部多拍 rAF/setTimeout）时为 true，
+     * 期间忽略 scroll 对 userPausedTail 的写入，避免程序滚到底被当成「用户回到底部」。
+     */
+    let userPausedTail = false;
+    let followLatestIgnoreScroll = false;
+    let tailScrollProgrammatic = false;
+    let pendingFollowStateCheck = false;
+    /** 每次 updateTrafficTable 递增，作废上一轮尚未跑完的 scrollTrafficTableToBottom */
+    let trafficTableScrollEpoch = 0;
+    const FOLLOW_LATEST_BOTTOM_PX = 2;
+    const RESUME_FOLLOW_BOTTOM_PX = 2;
+    /** 列表内无滚动条时滚轮会滚页面，scroll 事件不变，需靠 wheel 识别「离开跟随」 */
+    const WHEEL_STICK_DELTA = 2;
+
+    function getTrafficTableScrollEl() {
+        return document.getElementById('traffic-table-scroll');
+    }
+
+    function updateStickyOffsets() {
+        const nav = document.querySelector('.navbar');
+        const navHeight = nav ? Math.ceil(nav.getBoundingClientRect().height) : 56;
+        document.documentElement.style.setProperty('--navbar-sticky-height', `${navHeight}px`);
+    }
+
+    function isTrafficTableScrolledToBottom(el) {
+        if (!el) return true;
+        if (el.clientHeight < 1) return true;
+        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+        const threshold = FOLLOW_LATEST_BOTTOM_PX;
+        // 无溢出：视为已在「底部」
+        if (maxScroll < 1) return true;
+        const remaining = maxScroll - el.scrollTop;
+        if (remaining > threshold) return false;
+        // 可滚动高度较大但 scrollTop 仍很小（旧逻辑用 remaining<=threshold 会误判为在底部）
+        if (maxScroll > threshold && el.scrollTop <= threshold) return false;
+        return true;
+    }
+
+    function isTrafficTableAtBottomForResume(el) {
+        if (!el) return false;
+        if (el.clientHeight < 1) return false;
+        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+        if (maxScroll < 1) return true;
+        return (maxScroll - el.scrollTop) <= RESUME_FOLLOW_BOTTOM_PX;
+    }
+
+    /** 统一根据当前位置对齐暂停/恢复状态。 */
+    function reconcileFollowStateFromPosition(allowResume) {
+        if (isSearching) return;
+        const el = getTrafficTableScrollEl();
+        if (!el || el.clientHeight < 1) return;
+        if (userPausedTail) {
+            if (allowResume && isTrafficTableAtBottomForResume(el)) {
+                userPausedTail = false;
+            }
+            return;
+        }
+        const atBottom = isTrafficTableScrolledToBottom(el);
+        if (!atBottom) {
+            userPausedTail = true;
+        }
+    }
+
+    /**
+     * 滚到列表最新一行：scrollTop + 最后一行 scrollIntoView，多拍执行以覆盖布局滞后。
+     */
+    /**
+     * @param {function(): void} [onComplete] 同步 run + rAF 链 + setTimeout(0) 各跑完一轮后调用（用于结束程序滚动屏蔽）。
+     * @param {number} epoch 须与当前 trafficTableScrollEpoch 一致时才改 scrollTop（避免旧定时器在新 tbody 上滚到底）。
+     */
+    function scrollTrafficTableToBottom(onComplete, epoch) {
+        const wrap = getTrafficTableScrollEl();
+        const tbody = document.getElementById('traffic-tbody');
+        if (!wrap || !tbody) {
+            if (typeof onComplete === 'function') onComplete();
+            return;
+        }
+        const rows = tbody.rows;
+        if (!rows || rows.length === 0) {
+            if (typeof onComplete === 'function') onComplete();
+            return;
+        }
+
+        const lastRow = rows[rows.length - 1];
+        let pending = 2;
+        const done = () => {
+            pending -= 1;
+            if (pending <= 0 && typeof onComplete === 'function') {
+                requestAnimationFrame(() => onComplete());
+            }
+        };
+
+        const run = () => {
+            if (epoch !== trafficTableScrollEpoch) return;
+            void wrap.offsetHeight;
+            const maxTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+            wrap.scrollTop = maxTop;
+            try {
+                lastRow.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' });
+            } catch (e) { /* ignore */ }
+            wrap.scrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+        };
+
+        run();
+        requestAnimationFrame(() => {
+            run();
+            requestAnimationFrame(() => {
+                run();
+                done();
+            });
+        });
+        setTimeout(() => {
+            run();
+            done();
+        }, 0);
+    }
+
+    function onTrafficTableScroll() {
+        if (tailScrollProgrammatic || isSearching) return;
+        if (followLatestIgnoreScroll) {
+            // 重绘期间吞掉 scroll，结束后统一按当前位置对齐。
+            pendingFollowStateCheck = true;
+            return;
+        }
+        reconcileFollowStateFromPosition(true);
+    }
+
+    /**
+     * 滚轮仅用于「暂停跟随」：向上滚即暂停（含列表未溢出、内部 scrollTop 不变的情况）。
+     * 恢复跟随只依赖 onTrafficTableScroll 在真实滚动到列表底部后触发，
+     * 避免有新数据时因 wheel/scroll 时序导致误恢复。
+     */
+    function onTrafficTableWheelForStickiness(e) {
+        if (isSearching) return;
+        if (!e || Math.abs(e.deltaY) < WHEEL_STICK_DELTA) return;
+        if (e.deltaY < -WHEEL_STICK_DELTA) {
+            userPausedTail = true;
+            return;
+        }
+        // 兜底恢复：某些场景到底瞬间不触发有效 scroll，补一拍检测到底后恢复跟随
+        if (e.deltaY > WHEEL_STICK_DELTA && userPausedTail) {
+            requestAnimationFrame(() => {
+                const el = getTrafficTableScrollEl();
+                if (!el || el.clientHeight < 1) return;
+                if (isTrafficTableAtBottomForResume(el)) {
+                    userPausedTail = false;
+                }
+            });
+        }
+    }
+
+    function maybeFollowLatestAfterTableUpdate(wantStickToTail, epoch) {
+        if (!wantStickToTail) {
+            tailScrollProgrammatic = false;
+            return;
+        }
+        tailScrollProgrammatic = true;
+        scrollTrafficTableToBottom(() => {
+            if (epoch === trafficTableScrollEpoch) {
+                tailScrollProgrammatic = false;
+            }
+        }, epoch);
+    }
 
     // IndexedDB 本地缓存：仅在浏览器端使用，服务不可用时兜底展示
     const DB_NAME = 'uproxier-cache';
@@ -958,22 +1138,6 @@
         }
     }
 
-    async function getSessionId() {
-        try {
-            const db = await openRequestDB();
-            if (!db) return null;
-            return await new Promise((resolve, reject) => {
-                const tx = db.transaction(DB_STORE_META, 'readonly');
-                const store = tx.objectStore(DB_STORE_META);
-                const req = store.get('sessionId');
-                req.onsuccess = () => resolve((req.result && req.result.value) || null);
-                req.onerror = () => reject(req.error);
-            });
-        } catch (_) {
-            return null;
-        }
-    }
-
     async function ensureFreshSession() {
         await clearDBStores();
 
@@ -1052,6 +1216,8 @@
 
     // 页面加载完成后初始化：先清缓存并设置会话，再启动 SSE
     document.addEventListener('DOMContentLoaded', async function () {
+        updateStickyOffsets();
+        window.addEventListener('resize', updateStickyOffsets, {passive: true});
         try {
             await ensureFreshSession();
         } catch (e) {
@@ -1061,6 +1227,14 @@
         if (limitSel) {
             limitSel.value = String(trafficDisplayLimit);
             limitSel.addEventListener('change', onTrafficLimitChanged);
+        }
+        const scrollEl = getTrafficTableScrollEl();
+        if (scrollEl) {
+            scrollEl.addEventListener('scroll', onTrafficTableScroll, {passive: true});
+        }
+        const trafficListGrow = document.querySelector('.traffic-list-grow');
+        if (trafficListGrow) {
+            trafficListGrow.addEventListener('wheel', onTrafficTableWheelForStickiness, {passive: true});
         }
         startHeartbeat();
         startStreams();
@@ -1072,10 +1246,10 @@
             const lim = getTrafficDisplayLimit();
             const response = await fetch('/api/traffic?limit=' + encodeURIComponent(lim));
             const result = await response.json();
+            lastTrafficTrimFromTop = 0;
             currentData = result.data || [];
             const filtered = isSearching ? currentData.filter(it => matchesSearch(it, searchQuery)) : currentData;
             updateTrafficTable(filtered);
-            updateStats();
         } catch (error) {
             showToast('错误', '获取数据失败: ' + error.message, 'error');
         }
@@ -1112,7 +1286,6 @@
                         upsertTraffic(items);
                         const filtered = isSearching ? currentData.filter(it => matchesSearch(it, searchQuery)) : currentData;
                         updateTrafficTable(filtered);
-                        updateStats();
                     }
                 } catch (e) {
                 }
@@ -1136,11 +1309,7 @@
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg.type === 'stats') {
-                        const s = msg.data || {};
-                        document.getElementById('total-requests').textContent = s.total_requests ?? 0;
-                        document.getElementById('completed-requests').textContent = s.completed_requests ?? 0;
-                        document.getElementById('error-requests').textContent = s.error_requests ?? 0;
-                        document.getElementById('pending-requests').textContent = s.pending_requests ?? 0;
+                        // 统计栏已移除，保留 stats SSE 仅用于连接状态判断
                     }
                 } catch (e) {
                 }
@@ -1154,6 +1323,7 @@
     }
 
     function upsertTraffic(items) {
+        lastTrafficTrimFromTop = 0;
         // 将同 ID 的记录合并更新，不新增重复行
         if (!Array.isArray(items) || items.length === 0) return;
         const indexById = new Map();
@@ -1175,6 +1345,7 @@
         }
         const cap = getTrafficDisplayLimit();
         if (currentData.length > cap) {
+            lastTrafficTrimFromTop = currentData.length - cap;
             currentData = currentData.slice(-cap);
         }
         saveRequestsToDB(items);
@@ -1287,12 +1458,9 @@
             // 记录是否有旧数据，清空本地缓存与表格，等待 SSE 首帧快照回填
             const hadData = Array.isArray(currentData) && currentData.length > 0;
             currentData = [];
+            lastTrafficTrimFromTop = 0;
+            userPausedTail = false;
             updateTrafficTable([]);
-            // 先重置统计，随后由 /api/stream/stats 快速覆盖
-            document.getElementById('total-requests').textContent = '0';
-            document.getElementById('completed-requests').textContent = '0';
-            document.getElementById('error-requests').textContent = '0';
-            document.getElementById('pending-requests').textContent = '0';
             // 友好提示：仅当原本有数据时提示；只提示“已重新连接”
             if (hadData && typeof showToast === 'function') {
                 try {
@@ -1306,7 +1474,29 @@
 
     // 更新流量表格
     function updateTrafficTable(data) {
+        const trimTop = lastTrafficTrimFromTop;
+        lastTrafficTrimFromTop = 0;
+
+        trafficTableScrollEpoch += 1;
+        const scrollEpoch = trafficTableScrollEpoch;
+        // 重绘 tbody 时浏览器常把 scrollTop 置 0 并触发 scroll；期间忽略 scroll 对 follow 标志的写入
+        followLatestIgnoreScroll = true;
+
+        const wrap = getTrafficTableScrollEl();
         const tbody = document.getElementById('traffic-tbody');
+        let savedScrollTop = null;
+        if (wrap && userPausedTail) {
+            savedScrollTop = wrap.scrollTop;
+            // 满条数时从顶部丢掉旧行，内容整体上移；不减小 scrollTop 会错行或误判「在底部」
+            if (trimTop > 0 && savedScrollTop > 0) {
+                const fr = tbody.querySelector('tr');
+                const rh = fr ? fr.getBoundingClientRect().height : 0;
+                if (rh > 0) {
+                    savedScrollTop = Math.max(0, savedScrollTop - trimTop * rh);
+                }
+            }
+        }
+
         tbody.innerHTML = '';
 
         data.forEach(req => {
@@ -1338,6 +1528,35 @@
             // 添加点击行的事件监听器
             row.addEventListener('click', function () {
                 showRequestDetail(req.id);
+            });
+        });
+        const wantStickToTail = !userPausedTail && !isSearching && !!(data && data.length > 0);
+        maybeFollowLatestAfterTableUpdate(wantStickToTail, scrollEpoch);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (wrap && savedScrollTop != null && userPausedTail) {
+                        const applySaved = () => {
+                            const maxTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+                            wrap.scrollTop = Math.min(Math.max(0, savedScrollTop), maxTop);
+                        };
+                        applySaved();
+                        requestAnimationFrame(() => {
+                            applySaved();
+                            followLatestIgnoreScroll = false;
+                            if (pendingFollowStateCheck) {
+                                pendingFollowStateCheck = false;
+                                reconcileFollowStateFromPosition(true);
+                            }
+                        });
+                    } else {
+                        followLatestIgnoreScroll = false;
+                        if (pendingFollowStateCheck) {
+                            pendingFollowStateCheck = false;
+                            reconcileFollowStateFromPosition(true);
+                        }
+                    }
+                });
             });
         });
     }
@@ -1773,11 +1992,6 @@
         }
     }
 
-    // 更新统计信息
-    function updateStats() {
-        // 统计信息现在由 SSE 流式更新，此函数不再需要手动调用
-    }
-
     // 过滤数据
     function filterData(data, query) {
         return data.filter(req =>
@@ -1808,8 +2022,10 @@
     async function resetLocalTrafficState() {
         // 清空前端状态
         currentData = [];
+        lastTrafficTrimFromTop = 0;
         isSearching = false;
         searchQuery = '';
+        userPausedTail = false;
         document.getElementById('search-input').value = '';
 
         // 清空浏览器缓存（IndexedDB）并重置会话
@@ -1822,14 +2038,8 @@
             console.debug('重置会话 ID 失败', e);
         }
 
-        // 清空表格和统计
+        // 清空表格
         updateTrafficTable([]);
-        updateStats({
-            total_requests: 0,
-            completed_requests: 0,
-            pending_requests: 0,
-            error_requests: 0
-        });
     }
 
     // 清空流量
