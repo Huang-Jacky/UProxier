@@ -704,6 +704,14 @@
             </div>
         </div>
         <div class="col-md-6 text-end">
+            <div class="d-inline-flex align-items-center gap-1 me-2">
+                <label for="traffic-limit-select" class="form-label small mb-0 text-muted text-nowrap">显示条数</label>
+                <select id="traffic-limit-select" class="form-select form-select-sm" style="width: auto; min-width: 4.5rem;" title="列表最多保留的最近请求条数">
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                </select>
+            </div>
             <button class="btn btn-outline-primary" onclick="refreshData()">刷新</button>
             <button class="btn btn-outline-danger" onclick="clearTraffic()">清空</button>
         </div>
@@ -829,6 +837,23 @@
     let currentRequestDetail = null;
     let isSearching = false;
     let searchQuery = '';
+    const TRAFFIC_LIMIT_OPTIONS = [100, 200, 500];
+    let trafficDisplayLimit = 100;
+    let trafficEventSource = null;
+
+    function loadTrafficDisplayLimit() {
+        try {
+            const v = parseInt(sessionStorage.getItem('uproxier-traffic-limit') || '100', 10);
+            if (TRAFFIC_LIMIT_OPTIONS.includes(v)) return v;
+        } catch (e) { /* ignore */ }
+        return 100;
+    }
+
+    function getTrafficDisplayLimit() {
+        return trafficDisplayLimit;
+    }
+
+    trafficDisplayLimit = loadTrafficDisplayLimit();
 
     // IndexedDB 本地缓存：仅在浏览器端使用，服务不可用时兜底展示
     const DB_NAME = 'uproxier-cache';
@@ -1032,6 +1057,11 @@
         } catch (e) {
             console.debug('初始化本地缓存失败', e);
         }
+        const limitSel = document.getElementById('traffic-limit-select');
+        if (limitSel) {
+            limitSel.value = String(trafficDisplayLimit);
+            limitSel.addEventListener('change', onTrafficLimitChanged);
+        }
         startHeartbeat();
         startStreams();
     });
@@ -1039,22 +1069,41 @@
     // 刷新数据
     async function refreshData() {
         try {
-            const response = await fetch('/api/traffic?limit=100');
+            const lim = getTrafficDisplayLimit();
+            const response = await fetch('/api/traffic?limit=' + encodeURIComponent(lim));
             const result = await response.json();
             currentData = result.data || [];
-            updateTrafficTable(currentData);
+            const filtered = isSearching ? currentData.filter(it => matchesSearch(it, searchQuery)) : currentData;
+            updateTrafficTable(filtered);
             updateStats();
         } catch (error) {
-            showToast('获取数据失败: ' + error.message, 'danger');
+            showToast('错误', '获取数据失败: ' + error.message, 'error');
         }
     }
 
-    function startStreams() {
+    async function onTrafficLimitChanged() {
+        const sel = document.getElementById('traffic-limit-select');
+        if (!sel) return;
+        const v = parseInt(sel.value, 10);
+        if (!TRAFFIC_LIMIT_OPTIONS.includes(v)) return;
+        trafficDisplayLimit = v;
         try {
-            // Traffic stream
-            const trafficSource = new EventSource('/api/stream/traffic');
-            if (window.__onSSETrafficOpen) trafficSource.onopen = window.__onSSETrafficOpen;
-            trafficSource.onmessage = (event) => {
+            sessionStorage.setItem('uproxier-traffic-limit', String(v));
+        } catch (e) { /* ignore */ }
+        await refreshData();
+        connectTrafficStream();
+    }
+
+    function connectTrafficStream() {
+        try {
+            if (trafficEventSource) {
+                trafficEventSource.close();
+                trafficEventSource = null;
+            }
+            const lim = getTrafficDisplayLimit();
+            trafficEventSource = new EventSource('/api/stream/traffic?limit=' + encodeURIComponent(lim));
+            if (window.__onSSETrafficOpen) trafficEventSource.onopen = window.__onSSETrafficOpen;
+            trafficEventSource.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg.type === 'traffic') {
@@ -1068,9 +1117,17 @@
                 } catch (e) {
                 }
             };
-            trafficSource.onerror = () => {
+            trafficEventSource.onerror = () => {
                 if (window.__onSSETrafficError) window.__onSSETrafficError(); /* 断线由浏览器自动重连 */
             };
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function startStreams() {
+        try {
+            connectTrafficStream();
 
             // Stats stream
             const statsSource = new EventSource('/api/stream/stats');
@@ -1116,9 +1173,9 @@
                 if (id != null) indexById.set(id, currentData.length - 1);
             }
         }
-        // 仅保留最近 100 条
-        if (currentData.length > 100) {
-            currentData = currentData.slice(-100);
+        const cap = getTrafficDisplayLimit();
+        if (currentData.length > cap) {
+            currentData = currentData.slice(-cap);
         }
         saveRequestsToDB(items);
     }
@@ -1265,7 +1322,6 @@
             const timestamp = new Date(req.timestamp).toLocaleTimeString();
             
             const resourceType = getResourceType(req.url, req.content_type, req.method, req.response_data);
-            console.log('Resource type for', req.url, ':', resourceType);
 
             row.innerHTML = `
                     <td>${req.id}</td>

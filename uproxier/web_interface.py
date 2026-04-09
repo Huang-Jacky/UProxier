@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask import Response
@@ -40,9 +40,15 @@ class WebInterface:
         # 预览缓存容量控制（约 32MB）
         self._binary_previews_bytes: int = 0
         self._binary_previews_max_bytes: int = 32 * 1024 * 1024
+        # 清空流量时同步重置代理侧列表与请求计数
+        self._on_clear_traffic: Optional[Callable[[], None]] = None
 
         # 注册路由
         self.register_routes()
+
+    def register_clear_traffic_handler(self, handler: Callable[[], None]) -> None:
+        """注册与 /api/clear 同步执行的回调"""
+        self._on_clear_traffic = handler
 
     def register_routes(self) -> None:
         """注册 Flask 路由"""
@@ -84,9 +90,13 @@ class WebInterface:
 
         @self.app.route('/api/traffic')
         def get_traffic():
-            """获取流量数据"""
+            """获取流量数据。limit>0 时最多 500（与页面列表选项一致）；limit<=0 表示全部。"""
             limit = request.args.get('limit', 100, type=int)
-            filtered_data = self.traffic_data[-limit:] if limit > 0 else self.traffic_data
+            if limit > 0:
+                limit = min(max(limit, 1), 500)
+                filtered_data = self.traffic_data[-limit:]
+            else:
+                filtered_data = self.traffic_data
             return jsonify({
                 'data': filtered_data,
                 'total': len(self.traffic_data),
@@ -218,12 +228,17 @@ class WebInterface:
 
         @self.app.route('/api/stream/traffic')
         def stream_traffic():
+            lim = request.args.get('limit', 100, type=int)
+            if lim <= 0:
+                lim = 100
+            lim = min(max(lim, 1), 500)
+
             def gen():
                 q: Queue = Queue(maxsize=16)
                 self._traffic_subscribers.append(q)
                 try:
-                    # 首次推送最近数据
-                    snapshot = {'type': 'traffic', 'data': self.traffic_data[-100:]}
+                    # 首次推送最近数据（条数与 /api/traffic、前端选项一致）
+                    snapshot = {'type': 'traffic', 'data': self.traffic_data[-lim:]}
                     yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
                     # 持续消费，带心跳，避免中间设备/浏览器断开
                     while True:
@@ -292,6 +307,11 @@ class WebInterface:
         def clear_traffic():
             """清空流量数据"""
             try:
+                if self._on_clear_traffic is not None:
+                    try:
+                        self._on_clear_traffic()
+                    except Exception as e:
+                        logger.warning("清空代理侧流量状态失败: %s", e)
                 # 清空流量数据
                 self.traffic_data.clear()
                 self._binary_previews.clear()

@@ -712,6 +712,10 @@ class ProxyAddon:
         except Exception as e:
             logger.error(f"保存请求数据失败: {e}")
 
+    def clear_traffic_state(self) -> None:
+        self.traffic_data.clear()
+        self.request_count = 0
+
 
 class ProxyServer:
     """代理服务器主类"""
@@ -732,6 +736,7 @@ class ProxyServer:
             silent=self.silent,
             config_path=self.config_path
         )
+        self.web_interface.register_clear_traffic_handler(self.addon.clear_traffic_state)
         self.master = None
         self.is_running = False
         self._process = None  # 用于存储异步启动的进程对象
