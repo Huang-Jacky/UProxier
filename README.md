@@ -436,7 +436,8 @@ rules:
     - params: { from: "字符串", to: "字符串" }
     - 作用：将请求体按字符串替换（仅对可解码文本生效）
 - short_circuit
-    - params: 无（建议改在响应阶段用 mock_response 完成本地返回）
+    - params: { status/status_code?, headers?, content?, file? }
+    - 作用：请求阶段本地直返；`file` 与 `content` 同时存在时优先 `file`
 
 支持的行为（响应阶段 response_pipeline）：
 
@@ -467,7 +468,7 @@ rules:
         - p50/p95/p99: 分位数近似延迟
     - 作用：按配置延迟发送响应（延迟仅影响当前请求，不阻塞其它连接）
 - short_circuit
-    - params: { status: 200, headers: {...}, content: {...或字符串} }
+    - params: { status: 200, headers: {...}, content: {...或字符串}, file: 本地文件路径 }
     - 作用：本地直接返回，等价于 mock_response
 
 匹配规则说明：

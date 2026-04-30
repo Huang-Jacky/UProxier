@@ -2,6 +2,23 @@
 # 功能：在请求阶段直接返回构造的响应，不转发到上游
 
 rules:
+  - name: 请求阶段短路返回文件内容
+    enabled: true
+    priority: 11
+    match:
+      host: "^short\\.example\\.com$"
+      path: "^/file-json$"
+    request_pipeline:
+      - action: short_circuit
+        params:
+          status: 200
+          headers:
+            Content-Type: "application/json; charset=utf-8"
+            X-Short-Circuit: "true"
+          # 相对路径基于当前配置文件所在目录解析
+          file: "mocks/short_circuit_ok.json"
+    response_pipeline: [ ]
+
   - name: 请求阶段短路返回 JSON
     enabled: true
     priority: 10
@@ -39,6 +56,21 @@ rules:
             id: 123
             status: "created"
             message: "Resource created via short circuit"
+
+  - name: 响应阶段短路返回文件内容
+    enabled: true
+    priority: 8.5
+    match:
+      host: "^short\\.example\\.com$"
+      path: "^/response-file$"
+    request_pipeline: [ ]
+    response_pipeline:
+      - action: short_circuit
+        params:
+          status: 200
+          headers:
+            Content-Type: "application/json; charset=utf-8"
+          file: "mocks/short_circuit_ok.json"
 
   - name: 短路返回错误
     enabled: true

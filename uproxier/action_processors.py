@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import mimetypes
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -566,6 +567,9 @@ class DelayProcessor(ActionProcessor):
 class ShortCircuitProcessor(ActionProcessor):
     """短路处理器"""
 
+    def __init__(self, config_dir: Optional[str] = None):
+        self.config_dir = config_dir
+
     @property
     def action_name(self) -> str:
         return 'short_circuit'
@@ -578,17 +582,29 @@ class ShortCircuitProcessor(ActionProcessor):
         try:
             sc = params or {}
             status_code = int(sc.get('status') if 'status' in sc else sc.get('status_code', 200))
-            hdrs = sc.get('headers') or {}
+            hdrs = dict(sc.get('headers') or {})
             content = sc.get('content')
+            has_content_type = any(str(k).lower() == 'content-type' for k in hdrs.keys())
             body: bytes = b''
-            if content is not None:
+            if 'file' in sc:
+                p = Path(sc['file']).expanduser()
+                if not p.is_absolute():
+                    if self.config_dir:
+                        p = (Path(self.config_dir) / p).resolve()
+                    else:
+                        p = (Path.cwd() / p).resolve()
+                body = p.read_bytes()
+                if not has_content_type:
+                    guessed_type, _ = mimetypes.guess_type(str(p))
+                    hdrs['Content-Type'] = guessed_type or 'application/octet-stream'
+            elif content is not None:
                 if isinstance(content, dict):
                     body = json.dumps(content, ensure_ascii=False).encode('utf-8')
-                    if 'Content-Type' not in hdrs:
+                    if not has_content_type:
                         hdrs['Content-Type'] = 'application/json; charset=utf-8'
                 elif isinstance(content, str):
                     body = content.encode('utf-8')
-                    if 'Content-Type' not in hdrs:
+                    if not has_content_type:
                         hdrs['Content-Type'] = 'text/plain; charset=utf-8'
                 else:
                     body = str(content).encode('utf-8')
@@ -604,9 +620,11 @@ class ShortCircuitProcessor(ActionProcessor):
         mock = {'status_code': params.get('status', 200)}
         if 'headers' in params:
             mock['headers'] = params['headers']
+        if 'file' in params:
+            mock['file'] = params['file']
         if 'content' in params:
             mock['content'] = params['content']
-        mock_processor = MockResponseProcessor()
+        mock_processor = MockResponseProcessor(self.config_dir)
         if mock_processor.process_response(response, mock):
             return True
         return False
@@ -779,7 +797,7 @@ class ActionProcessorManager:
             ReplaceBodyJsonProcessor(),
             MockResponseProcessor(self.config_dir),
             DelayProcessor(),
-            ShortCircuitProcessor(),
+            ShortCircuitProcessor(self.config_dir),
             ConditionalProcessor(self),
             SetVariableProcessor(),
             RemoveJsonFieldProcessor()

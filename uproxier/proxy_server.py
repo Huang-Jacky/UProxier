@@ -360,6 +360,7 @@ class ProxyAddon:
         large_file_threshold = self.capture_config.get('large_file_threshold', 1048576)
 
         # 判断是否为流媒体或大文件
+        is_multipart = content_type.startswith('multipart/form-data')
         is_binary = any(t in content_type for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
         is_streaming = enable_streaming and ('chunked' in transfer_encoding or content_type.startswith('multipart/'))
         # Content-Length 可能为非数字（如缺失或被代理端异常设置），需安全判断
@@ -367,8 +368,10 @@ class ProxyAddon:
             content_length) > large_file_threshold
 
         # 处理内容（根据配置决定是否处理流媒体和大文件）
-        if (is_binary or is_streaming or is_large_file) and flow.request.content:
-            if is_streaming:
+        if (is_multipart or is_binary or is_streaming or is_large_file) and flow.request.content:
+            if is_multipart:
+                content_info = f"[MULTIPART] Size: {len(flow.request.content)} bytes, Type: {content_type}"
+            elif is_streaming:
                 content_info = f"[STREAMING] Size: {len(flow.request.content)} bytes, Type: {content_type}, Transfer-Encoding: {transfer_encoding}"
             elif is_binary:
                 content_info = f"[BINARY] Size: {len(flow.request.content)} bytes, Type: {content_type}"
@@ -393,6 +396,7 @@ class ProxyAddon:
             'headers': dict(flow.request.headers),
             'content': content_info,
             'content_size': len(flow.request.content) if flow.request.content else 0,
+            'is_multipart': is_multipart,
             'is_binary': is_binary,
             'is_streaming': is_streaming,
             'is_large_file': is_large_file,
@@ -438,13 +442,16 @@ class ProxyAddon:
             mod_ct = (get_header_value(flow.request.headers, 'content-type') or '').lower()
             mod_te = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
             mod_cl = get_header_value(flow.request.headers, 'content-length') or ''
+            mod_is_multipart = mod_ct.startswith('multipart/form-data')
             mod_is_binary = any(t in mod_ct for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
             mod_is_streaming = self.capture_config.get('enable_streaming', False) and (
                     'chunked' in mod_te or mod_ct.startswith('multipart/'))
             mod_is_large_file = self.capture_config.get('enable_large_files', False) and mod_cl and int(
                 mod_cl) > self.capture_config.get('large_file_threshold', 1048576)
-            if (mod_is_binary or mod_is_streaming or mod_is_large_file) and flow.request.content:
-                if mod_is_streaming:
+            if (mod_is_multipart or mod_is_binary or mod_is_streaming or mod_is_large_file) and flow.request.content:
+                if mod_is_multipart:
+                    mod_content_info = f"[MULTIPART] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
+                elif mod_is_streaming:
                     mod_content_info = f"[STREAMING] Size: {len(flow.request.content)} bytes, Type: {mod_ct}, Transfer-Encoding: {mod_te}"
                 elif mod_is_binary:
                     mod_content_info = f"[BINARY] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
@@ -460,6 +467,7 @@ class ProxyAddon:
             request_info['modified_headers'] = dict(flow.request.headers)
             request_info['modified_content'] = mod_content_info
             request_info['modified_content_size'] = len(flow.request.content) if flow.request.content else 0
+            request_info['modified_is_multipart'] = mod_is_multipart
 
         if capture_this:
             self.traffic_data.append(request_info)
