@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import copy
 import json
 import logging
 import threading
 from datetime import datetime
 from pathlib import Path
-from queue import Queue
+from queue import Queue, Empty
 from typing import Dict, List, Any, Optional, Callable
 
 from flask import Flask, render_template, jsonify, request, send_from_directory
@@ -42,6 +43,18 @@ class WebInterface:
         self._binary_previews_max_bytes: int = 32 * 1024 * 1024
         # 清空流量时同步重置代理侧列表与请求计数
         self._on_clear_traffic: Optional[Callable[[], None]] = None
+
+        # Web 流量列表读写锁（与后台 UI 更新线程共享）
+        self._traffic_lock = threading.RLock()
+        # 清空代数：递增后队列中更旧代的任务会被丢弃，避免 clear 后“晚到”的 upsert 把旧数据写回
+        self._traffic_clear_gen: int = 0
+        self._traffic_queue: Queue = Queue()
+        self._traffic_worker = threading.Thread(
+            target=self._traffic_worker_loop,
+            daemon=True,
+            name='uproxier-traffic-ui',
+        )
+        self._traffic_worker.start()
 
         # 注册路由
         self.register_routes()
@@ -92,14 +105,16 @@ class WebInterface:
         def get_traffic():
             """获取流量数据。limit>0 时最多 500（与页面列表选项一致）；limit<=0 表示全部。"""
             limit = request.args.get('limit', 100, type=int)
-            if limit > 0:
-                limit = min(max(limit, 1), 500)
-                filtered_data = self.traffic_data[-limit:]
-            else:
-                filtered_data = self.traffic_data
+            with self._traffic_lock:
+                if limit > 0:
+                    limit = min(max(limit, 1), 500)
+                    filtered_data = list(self.traffic_data[-limit:])
+                else:
+                    filtered_data = list(self.traffic_data)
+                total = len(self.traffic_data)
             return jsonify({
                 'data': filtered_data,
-                'total': len(self.traffic_data),
+                'total': total,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
 
@@ -109,7 +124,8 @@ class WebInterface:
             try:
                 fmt = (request.args.get('format') or 'json').lower()
                 limit = request.args.get('limit', type=int)
-                data = self.traffic_data if not limit or limit <= 0 else self.traffic_data[-limit:]
+                with self._traffic_lock:
+                    data = list(self.traffic_data) if not limit or limit <= 0 else list(self.traffic_data[-limit:])
                 # 为避免过大导出，设置一个导出上限（默认 10000 条）
                 if len(data) > 10000:
                     data = data[-10000:]
@@ -210,21 +226,8 @@ class WebInterface:
         @self.app.route('/api/stats')
         def get_stats():
             """获取统计信息"""
-            completed_requests = [req for req in self.traffic_data if req.get('status') == 'completed']
-            error_requests = [req for req in self.traffic_data if req.get('status') == 'error']
-
-            # 计算响应时间统计
-            response_times = [req.get('response_time', 0) for req in completed_requests]
-            avg_response_time = sum(response_times) / len(response_times) if response_times else 0
-
-            return jsonify({
-                'total_requests': len(self.traffic_data),
-                'completed_requests': len(completed_requests),
-                'error_requests': len(error_requests),
-                'pending_requests': len([req for req in self.traffic_data if req.get('status') == 'pending']),
-                'avg_response_time': round(avg_response_time, 3),
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
+            payload = self._current_stats_payload()
+            return jsonify(payload['data'])
 
         @self.app.route('/api/stream/traffic')
         def stream_traffic():
@@ -238,7 +241,9 @@ class WebInterface:
                 self._traffic_subscribers.append(q)
                 try:
                     # 首次推送最近数据（条数与 /api/traffic、前端选项一致）
-                    snapshot = {'type': 'traffic', 'data': self.traffic_data[-lim:]}
+                    with self._traffic_lock:
+                        snap = list(self.traffic_data[-lim:])
+                    snapshot = {'type': 'traffic', 'data': snap}
                     yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
                     # 持续消费，带心跳，避免中间设备/浏览器断开
                     while True:
@@ -312,18 +317,19 @@ class WebInterface:
                         self._on_clear_traffic()
                     except Exception as e:
                         logger.warning("清空代理侧流量状态失败: %s", e)
-                # 清空流量数据
-                self.traffic_data.clear()
-                self._binary_previews.clear()
-
+                # 递增代数并清空；丢弃队列中未处理的旧更新，避免 clear 后又被写回
+                with self._traffic_lock:
+                    self._traffic_clear_gen += 1
+                    self.traffic_data.clear()
+                    self._binary_previews.clear()
+                    try:
+                        self._binary_previews_bytes = 0
+                    except Exception:
+                        pass
+                self._drain_traffic_queue()
                 try:
-                    self._binary_previews_bytes = 0
-                except Exception:
-                    pass
-
-                # 广播一次空的流量与统计，确保状态栏同步归零
-                try:
-                    self.update_traffic_data(self.traffic_data)
+                    self._publish_traffic_sse_after_mutation('replace_all', None)
+                    self._publish_stats_sse()
                 except Exception:
                     pass
 
@@ -334,7 +340,9 @@ class WebInterface:
         @self.app.route('/api/request/<int:request_id>')
         def get_request_detail(request_id: int):
             """获取请求详情"""
-            for req in self.traffic_data:
+            with self._traffic_lock:
+                snapshot = list(self.traffic_data)
+            for req in snapshot:
                 if req.get('id') == request_id:
                     try:
                         # 避免返回过大的原始内容字段
@@ -442,37 +450,80 @@ class WebInterface:
             except Exception as e:
                 return jsonify({'error': f'证书下载失败: {e}'}), 500
 
-    def update_traffic_data(self, traffic_data: List[Dict[str, Any]], changed: Optional[Dict[str, Any]] = None):
-        """更新流量数据，并优先推送本次变更的那条记录（避免只推送最后一条导致行未刷新）。"""
-
-        # 将可能携带的 base64 预览转为内存缓存 + URL，避免前端大体积 payload
-        def _materialize_preview(rec: Dict[str, Any]) -> Dict[str, Any]:
+    def _drain_traffic_queue(self) -> None:
+        while True:
             try:
-                rid = rec.get('id')
-                b64 = rec.pop('response_preview_b64', None)
-                mime = rec.get('response_preview_mime') or ''
-                if rid and b64 and mime:
-                    import base64
-                    data = base64.b64decode(b64)
-                    self._binary_previews[int(rid)] = {'data': data, 'mime': mime}
-                    rec['response_preview_url'] = f"/api/preview/{rid}"
-                return rec
-            except Exception:
-                return rec
+                self._traffic_queue.get_nowait()
+            except Empty:
+                break
 
-        self.traffic_data = [_materialize_preview(dict(r)) for r in traffic_data]
-        # 广播最新片段（最近一条或最近100条）与统计
+    def _traffic_worker_loop(self) -> None:
+        while True:
+            item = self._traffic_queue.get()
+            if item is None:
+                break
+            try:
+                op, payload, gen = item
+                with self._traffic_lock:
+                    if gen != self._traffic_clear_gen:
+                        continue
+                    row_for_sse: Optional[Dict[str, Any]] = None
+                    if op == 'upsert':
+                        row_for_sse = self._worker_apply_upsert_locked(payload)
+                    elif op == 'replace_all':
+                        row_for_sse = self._worker_apply_replace_all_locked(payload)
+                    else:
+                        continue
+                self._publish_traffic_sse_after_mutation(op, row_for_sse)
+                self._publish_stats_sse()
+            except Exception:
+                logger.exception('traffic UI worker failed')
+
+    def _materialize_preview_record(self, rec: Dict[str, Any]) -> Dict[str, Any]:
+        rec = dict(rec)
         try:
-            if changed is not None:
-                payload = {'type': 'traffic', 'data': [_materialize_preview(dict(changed))]}
+            rid = rec.get('id')
+            b64 = rec.pop('response_preview_b64', None)
+            mime = rec.get('response_preview_mime') or ''
+            if rid and b64 and mime:
+                import base64
+                data = base64.b64decode(b64)
+                self._binary_previews[int(rid)] = {'data': data, 'mime': mime}
+                rec['response_preview_url'] = f"/api/preview/{rid}"
+            return rec
+        except Exception:
+            return rec
+
+    def _worker_apply_upsert_locked(self, rec: Dict[str, Any]) -> Dict[str, Any]:
+        rec = self._materialize_preview_record(rec)
+        rid = rec.get('id')
+        if rid is not None:
+            for i, ex in enumerate(self.traffic_data):
+                if ex.get('id') == rid:
+                    self.traffic_data[i] = rec
+                    return rec
+        self.traffic_data.append(rec)
+        return rec
+
+    def _worker_apply_replace_all_locked(self, rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        self.traffic_data = [self._materialize_preview_record(dict(r)) for r in rows]
+        return None
+
+    def _publish_traffic_sse_after_mutation(self, op: str, row_for_sse: Optional[Dict[str, Any]]) -> None:
+        try:
+            if op == 'upsert' and row_for_sse is not None:
+                payload = {'type': 'traffic', 'data': [row_for_sse]}
             else:
-                payload = {'type': 'traffic', 'data': self.traffic_data[-1:]} if self.traffic_data else {
-                    'type': 'traffic', 'data': []}
+                with self._traffic_lock:
+                    chunk = list(self.traffic_data[-1:]) if self.traffic_data else []
+                payload = {'type': 'traffic', 'data': chunk}
             for q in list(self._traffic_subscribers):
                 if not q.full():
                     q.put(payload)
         except Exception:
             pass
+
+    def _publish_stats_sse(self) -> None:
         try:
             stats = self._current_stats_payload()
             for q in list(self._stats_subscribers):
@@ -480,6 +531,19 @@ class WebInterface:
                     q.put(stats)
         except Exception:
             pass
+
+    def update_traffic_data(self, traffic_data: List[Dict[str, Any]], changed: Optional[Dict[str, Any]] = None):
+        """将流量更新投递到后台线程，避免阻塞代理主路径；顺序 FIFO，与原先列表语义一致。"""
+        try:
+            with self._traffic_lock:
+                gen = self._traffic_clear_gen
+            if changed is not None:
+                self._traffic_queue.put(('upsert', copy.deepcopy(changed), gen))
+            else:
+                rows = [dict(r) for r in (traffic_data or [])]
+                self._traffic_queue.put(('replace_all', rows, gen))
+        except Exception as e:
+            logger.warning('投递流量 UI 更新失败: %s', e)
 
     def register_binary_preview(self, request_id: int, data: bytes, mime: str) -> str:
         """注册小体积二进制预览到内存缓存，并返回可访问 URL。"""
@@ -514,17 +578,19 @@ class WebInterface:
             return ""
 
     def _current_stats_payload(self) -> Dict[str, Any]:
-        completed_requests = [req for req in self.traffic_data if req.get('status') == 'completed']
-        error_requests = [req for req in self.traffic_data if req.get('status') == 'error']
+        with self._traffic_lock:
+            td = list(self.traffic_data)
+        completed_requests = [req for req in td if req.get('status') == 'completed']
+        error_requests = [req for req in td if req.get('status') == 'error']
         response_times = [req.get('response_time', 0) for req in completed_requests]
         avg_response_time = sum(response_times) / len(response_times) if response_times else 0
         return {
             'type': 'stats',
             'data': {
-                'total_requests': len(self.traffic_data),
+                'total_requests': len(td),
                 'completed_requests': len(completed_requests),
                 'error_requests': len(error_requests),
-                'pending_requests': len([req for req in self.traffic_data if req.get('status') == 'pending']),
+                'pending_requests': len([req for req in td if req.get('status') == 'pending']),
                 'avg_response_time': round(avg_response_time, 3),
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
@@ -574,3 +640,11 @@ class WebInterface:
     def stop(self) -> None:
         """停止 Web 界面"""
         self.is_running = False
+        try:
+            self._traffic_queue.put(None)
+        except Exception:
+            pass
+        try:
+            self._traffic_worker.join(timeout=2.0)
+        except Exception:
+            pass
