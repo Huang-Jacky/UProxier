@@ -1,5 +1,7 @@
 # UProxier · 代理服务器
 
+**中文** | [English](README_EN.md)
+
 基于 mitmproxy 的完整代理软件解决方案，支持 HTTP/HTTPS 代理、请求拦截、规则配置和 Web 界面。
 
 ## 功能特性
@@ -325,7 +327,7 @@ capture:
 
 #### 抓取过滤（include / exclude）
 
-支持在 `capture` 下按“白名单/黑名单”过滤是否将请求写入 UI 与持久化：
+支持在 `capture` 下按"白名单/黑名单"过滤是否将请求写入 UI 与持久化：
 
 ```yaml
 capture:
@@ -349,10 +351,10 @@ capture:
 
 说明：
 
-- hosts、paths 支持正则；**hosts 还支持通配符**：写 `*.apple.com`、`*cdn-apple*` 等（`*` 匹配任意、`?` 匹配单字符、`.` 为字面点），含 `\`、`^`、`$` 时按正则处理；hosts 大小写不敏感，paths 大小写敏感。
+- hosts、paths 支持正则；**hosts 还支持通配符**：写 `*.apple.com`、`*cdn-apple*` 等（`*` 匹配任意、`?` 匹配单字符、`.` 为字面点），含 `\`、`^`、`$` 时按正则处理。
 - methods 自动转为大写进行匹配。
 
-**App Store / iTunes 打不开时**：1）启动必须用 `--config /path/to/你的配置.yaml`，否则会读默认路径（如 `~/.uproxier/config.yaml`），exclude 可能未生效；2）exclude.hosts 需覆盖 App Store 会用到的域名，建议至少包含：`.*\\.apple\\.com$`、`.*\\.cdn-apple\\.com$`（如 store.storeimages.cdn-apple.com）、`.*\\.itunes\\.apple\\.com$`、`.*\\.icloud\\.com$`、`.*\\.mzstatic\\.com$`、`.*\\.aaplimg\\.com$`；3）不加 `-s` 启动时，若 TLS 直通生效会在控制台看到 `TLS 直通（exclude.hosts）: xxx`，若无该日志说明配置未加载或域名未命中。
+**App Store / iTunes 打不开时**：1）启动必须用 `--config /path/to/你的配置.yaml`，否则会读默认路径（如 `~/.uproxier/config.yaml`），exclude 可能未生效；2）exclude 对 HTTPS 直通生效（规则不执行），不阻断连接。
 
 ```
 action: <行为名>
@@ -589,9 +591,8 @@ python3 -m uproxier examples --copy 01_set_header.yaml
           ```
     - `mock_response`：完全替换响应
         - params: { status_code?, headers?, content? | file?, redirect_to?/location? }
-        - headers 采用“覆盖/新增”，不会清空其它上游头
-        - file：从磁盘读取文件内容（bytes）作为响应体；相对路径基于当前工作目录，支持 ~；当未显式设置 Content-Type 时会按扩展名尝试推断（如 .json →
-          application/json）；响应头会附加 `X-Mocked-From-File: <绝对路径>` 便于排查
+        - headers 采用"覆盖/新增"，不会清空其它上游头
+        - file：从磁盘读取文件内容（bytes）作为响应体；相对路径基于当前工作目录，支持 ~；当未显式设置 Content-Type 时会按扩展名尝试推断（如 .js → application/javascript, .json → application/json）；响应头会附加 `X-Mocked-From-File: <绝对路径>` 便于排查
             - 示例：
           ```yaml
           response_pipeline:
@@ -716,7 +717,7 @@ python3 -m uproxier examples --copy 01_set_header.yaml
 - `values` 冲突优先级：
     - replace_body_json 优先按扁平直传应用（允许把 `values` 当业务字段名），若无修改才解析 `values` 批量语法，最后兜底单键 `{ path, value }`
 - 禁用规则：
-    - enabled=false 的规则在请求与响应阶段都会跳过；控制台加载日志会输出“加载了 N 条规则（启用 M 条）”
+    - enabled=false 的规则在请求与响应阶段都会跳过；控制台加载日志会输出"加载了 N 条规则（启用 M 条）"
 - 可观测头：
     - 命中规则：X-Rule-Name
     - 延迟：X-Delay-Applied / X-Delay-Effective
@@ -797,7 +798,8 @@ sudo update-ca-certificates
 ```
 UProxier/
 ├── requirements.txt    # 依赖列表
-├── README.md           # GitHub 文档
+├── README.md           # 中文文档
+├── README_EN.md        # 英文文档
 ├── README_PYPI.md      # PyPI 文档
 ├── API_USAGE.md        # API 使用文档
 └── uproxier/           # 主包目录
@@ -822,28 +824,28 @@ UProxier/
 ### 常见问题
 
 1. **安装后 uproxier 命令不可用**
-   ```bash
-   # 如果使用 pyenv，检查版本设置
-   pyenv versions  # 查看可用版本
-   pyenv global    # 查看当前全局版本
-   
-   # 如果全局版本不是安装 uproxier 的版本，设置为正确的版本
-   pyenv global 3.10.6  # 替换为你的 Python 版本
-   
-   # 如果使用 pyenv，确保 pyenv 已正确初始化
-   # 在 ~/.zshrc 或 ~/.bashrc 中添加：
-   echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
-   echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
-   echo 'eval "$(pyenv init --path)"' >> ~/.zshrc
-   echo 'eval "$(pyenv init -)"' >> ~/.zshrc
-   source ~/.zshrc
-   
-   # 检查安装位置
-   python3 -c "import sys; print(sys.executable.replace('python3', 'uproxier'))"
-   
-   # 如果仍不可用，确保 Python bin 目录在 PATH 中
-   export PATH="$(python3 -c "import sys; print(sys.executable.replace('python3', ''))"):$PATH"
-   ```
+    ```bash
+    # 如果使用 pyenv，检查版本设置
+    pyenv versions  # 查看可用版本
+    pyenv global    # 查看当前全局版本
+    
+    # 如果全局版本不是安装 uproxier 的版本，设置为正确的版本
+    pyenv global 3.10.6  # 替换为你的 Python 版本
+    
+    # 如果使用 pyenv，确保 pyenv 已正确初始化
+    # 在 ~/.zshrc 或 ~/.bashrc 中添加：
+    echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+    echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+    echo 'eval "$(pyenv init --path)"' >> ~/.zshrc
+    echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+    source ~/.zshrc
+    
+    # 检查安装位置
+    python3 -c "import sys; print(sys.executable.replace('python3', 'uproxier'))"
+    
+    # 如果仍不可用，确保 Python bin 目录在 PATH 中
+    export PATH="$(python3 -c "import sys; print(sys.executable.replace('python3', ''))"):$PATH"
+    ```
 
 2. **证书错误**
     - 确保证书已正确安装到系统
@@ -885,4 +887,3 @@ MIT License
 ## 参考
 
 - [mitmproxy](https://mitmproxy.org/)
-
