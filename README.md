@@ -1,6 +1,6 @@
 # UProxier · 代理服务器
 
-**中文** | [English](README_EN.md)
+🌐 语言: 🇨🇳 中文 | [🇺🇸 English](README_EN.md)
 
 基于 mitmproxy 的完整代理软件解决方案，支持 HTTP/HTTPS 代理、请求拦截、规则配置和 Web 界面。
 
