@@ -4,7 +4,9 @@
 import asyncio
 import json
 import logging
+import os
 import pathlib
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +30,21 @@ logger = logging.getLogger(__name__)
 DEFAULT_HOST = "0.0.0.0"
 
 
+def _local_port_accepting_connections(port: int, timeout: float = 0.5) -> bool:
+    """本机 ``127.0.0.1:port`` 是否已有服务 accept（与 ``cli.is_service_ready`` 同类检测）。"""
+    try:
+        import socket
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            return sock.connect_ex(("127.0.0.1", port)) == 0
+        finally:
+            sock.close()
+    except Exception:
+        return False
+
+
 class ProxyAddon:
     """代理服务器插件，处理请求和响应"""
 
@@ -37,6 +54,8 @@ class ProxyAddon:
         self.web_interface = web_interface
         self.silent = silent
         self.request_count = 0
+        # 与 traffic_data 共用一把可重入锁：避免并发 append / 遍历查找时偶发错配或漏匹配
+        self._traffic_state_lock = threading.RLock()
         self.traffic_data = []
         self.save_path = None
         self.internal_targets = set()
@@ -307,6 +326,40 @@ class ProxyAddon:
                 continue
         return False
 
+    @staticmethod
+    def _same_traffic_id(stored: Any, meta: Any) -> bool:
+        """判断 traffic 记录 id 与 flow.metadata 中的请求 id 是否同一（兼容 int/str）。"""
+        if meta is None or stored is None:
+            return False
+        try:
+            return int(stored) == int(meta)
+        except (TypeError, ValueError):
+            return str(stored) == str(meta)
+
+    @staticmethod
+    def _pending_row_matches_request_url(req: Dict[str, Any], pretty_url: str) -> bool:
+        """pending 行与当前请求的 pretty_url 对齐（含规则改写后的 URL）。"""
+        if req.get("status") != "pending":
+            return False
+        u = req.get("url")
+        if u == pretty_url:
+            return True
+        mod = req.get("modified_url")
+        return mod == pretty_url if mod else False
+
+    @staticmethod
+    def _parse_content_length_bytes(cl: Any) -> Optional[int]:
+        """安全解析 Content-Length，非法或非数字时返回 None。"""
+        if cl is None:
+            return None
+        s = str(cl).strip()
+        if not s.isdigit():
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
+
     def tls_clienthello(self, data: mitm_tls.ClientHelloData) -> None:
         """TLS ClientHello：若 SNI 命中 exclude.hosts 则不解密，直接透传（解决 ignore_hosts 不可靠的问题）"""
         try:
@@ -325,8 +378,18 @@ class ProxyAddon:
         # 跳过对内部 Web 端口的拦截（包括二维码链接）
         try:
             if flow.request.port in self.internal_web_ports:
+                try:
+                    flow.metadata["uproxier_capture"] = False
+                    flow.metadata["uproxier_skip"] = "internal_web_port"
+                except Exception:
+                    pass
                 return
             if (flow.request.pretty_host, flow.request.port) in self.internal_targets:
+                try:
+                    flow.metadata["uproxier_capture"] = False
+                    flow.metadata["uproxier_skip"] = "internal_target"
+                except Exception:
+                    pass
                 return
         except Exception:
             pass
@@ -340,14 +403,21 @@ class ProxyAddon:
             capture_this = True
             flow.metadata["uproxier_capture"] = True
         if not capture_this:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "跳过捕获(未命中 capture.include 或命中 exclude): %s %s",
+                    getattr(flow.request, 'method', '?'),
+                    getattr(flow.request, 'pretty_url', '?'),
+                )
             return
 
-        self.request_count += 1
-        # 将当前请求的 ID 绑定到 flow.metadata，便于响应阶段精确匹配
-        try:
-            flow.metadata["uproxier_request_id"] = self.request_count
-        except Exception:
-            pass
+        with self._traffic_state_lock:
+            self.request_count += 1
+            req_id_assigned = self.request_count
+            try:
+                flow.metadata["uproxier_request_id"] = req_id_assigned
+            except Exception:
+                pass
 
         # 记录请求信息（原始）
         content_type = (get_header_value(flow.request.headers, 'content-type') or '').lower()
@@ -386,7 +456,7 @@ class ProxyAddon:
             content_info = ''
 
         request_info = {
-            'id': self.request_count,
+            'id': req_id_assigned,
             'method': flow.request.method,
             'url': flow.request.pretty_url,
             'host': flow.request.pretty_host,
@@ -406,75 +476,92 @@ class ProxyAddon:
             'status': 'pending'
         }
 
-        modified_request, applied_rule_names = self.rules_engine.apply_request_rules(flow.request)
-        if modified_request:
-            flow.request = modified_request
-            request_info['modified'] = True
-            request_info['request_rules_applied'] = applied_rule_names
-            request_info['modified_url'] = flow.request.pretty_url
-            # 若请求阶段配置了短路直返响应，则直接返回
-            try:
-                sc_resp = getattr(flow.request, 'short_circuit_response', None)
-                if sc_resp is not None:
-                    flow.response = sc_resp
-                    if flow.response.headers is not None:
-                        flow.response.headers['X-Short-Circuit'] = 'true'
-                    request_info.update({
-                        'status': 'completed',
-                        'response_status': flow.response.status_code,
-                        'response_headers': dict(flow.response.headers),
-                        'response_content': flow.response.get_text(strict=False) if hasattr(flow.response,
-                                                                                            'get_text') else (
-                            flow.response.text if hasattr(flow.response, 'text') else ''),
-                        'response_content_size': len(flow.response.content) if getattr(flow.response, 'content',
-                                                                                       None) else 0,
-                        'response_time': 0,
-                        'response_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    })
-                    # 关键：短路分支也要归档（若命中捕获条件）
-                    if self._should_capture(flow.request):
-                        self.traffic_data.append(request_info)
-                        self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
-                    return
-            except Exception:
-                pass
-            # 计算修改后的预览
-            mod_ct = (get_header_value(flow.request.headers, 'content-type') or '').lower()
-            mod_te = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
-            mod_cl = get_header_value(flow.request.headers, 'content-length') or ''
-            mod_is_multipart = mod_ct.startswith('multipart/form-data')
-            mod_is_binary = any(t in mod_ct for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
-            mod_is_streaming = self.capture_config.get('enable_streaming', False) and (
-                    'chunked' in mod_te or mod_ct.startswith('multipart/'))
-            mod_is_large_file = self.capture_config.get('enable_large_files', False) and mod_cl and int(
-                mod_cl) > self.capture_config.get('large_file_threshold', 1048576)
-            if (mod_is_multipart or mod_is_binary or mod_is_streaming or mod_is_large_file) and flow.request.content:
-                if mod_is_multipart:
-                    mod_content_info = f"[MULTIPART] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
-                elif mod_is_streaming:
-                    mod_content_info = f"[STREAMING] Size: {len(flow.request.content)} bytes, Type: {mod_ct}, Transfer-Encoding: {mod_te}"
-                elif mod_is_binary:
-                    mod_content_info = f"[BINARY] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
-                else:
-                    mod_content_info = f"[LARGE_FILE] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
-            elif flow.request.content:
+        try:
+            modified_request, applied_rule_names = self.rules_engine.apply_request_rules(flow.request)
+            if modified_request:
+                flow.request = modified_request
+                request_info['modified'] = True
+                request_info['request_rules_applied'] = applied_rule_names
+                request_info['modified_url'] = flow.request.pretty_url
+                # 若请求阶段配置了短路直返响应，则直接返回
                 try:
-                    mod_content_info = flow.request.content.decode('utf-8', errors='ignore')
-                except UnicodeDecodeError:
-                    mod_content_info = f"[ENCODED] Size: {len(flow.request.content)} bytes"
-            else:
-                mod_content_info = ''
-            request_info['modified_headers'] = dict(flow.request.headers)
-            request_info['modified_content'] = mod_content_info
-            request_info['modified_content_size'] = len(flow.request.content) if flow.request.content else 0
-            request_info['modified_is_multipart'] = mod_is_multipart
+                    sc_resp = getattr(flow.request, 'short_circuit_response', None)
+                    if sc_resp is not None:
+                        flow.response = sc_resp
+                        if flow.response.headers is not None:
+                            flow.response.headers['X-Short-Circuit'] = 'true'
+                        request_info.update({
+                            'status': 'completed',
+                            'response_status': flow.response.status_code,
+                            'response_headers': dict(flow.response.headers),
+                            'response_content': flow.response.get_text(strict=False) if hasattr(flow.response,
+                                                                                                'get_text') else (
+                                flow.response.text if hasattr(flow.response, 'text') else ''),
+                            'response_content_size': len(flow.response.content) if getattr(flow.response, 'content',
+                                                                                           None) else 0,
+                            'response_time': 0,
+                            'response_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                        # 关键：短路分支也要归档（若命中捕获条件）
+                        if self._should_capture(flow.request):
+                            with self._traffic_state_lock:
+                                self.traffic_data.append(request_info)
+                            self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+                            # 短路分支不会进入 response()，这里必须立刻持久化，避免漏写
+                            self._maybe_persist(request_info)
+                        return
+                except Exception as e:
+                    logger.exception("短路响应处理异常")
+                    if capture_this:
+                        self._emit_handler_failure_record(request_info, e, status='short_circuit_handler_error')
+                    return
+                # 计算修改后的预览
+                mod_ct = (get_header_value(flow.request.headers, 'content-type') or '').lower()
+                mod_te = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
+                mod_cl = get_header_value(flow.request.headers, 'content-length') or ''
+                mod_is_multipart = mod_ct.startswith('multipart/form-data')
+                mod_is_binary = any(t in mod_ct for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
+                mod_is_streaming = self.capture_config.get('enable_streaming', False) and (
+                        'chunked' in mod_te or mod_ct.startswith('multipart/'))
+                mod_cl_val = self._parse_content_length_bytes(mod_cl)
+                mod_is_large_file = bool(
+                    self.capture_config.get('enable_large_files', False)
+                    and mod_cl_val is not None
+                    and mod_cl_val > self.capture_config.get('large_file_threshold', 1048576)
+                )
+                if (mod_is_multipart or mod_is_binary or mod_is_streaming or mod_is_large_file) and flow.request.content:
+                    if mod_is_multipart:
+                        mod_content_info = f"[MULTIPART] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
+                    elif mod_is_streaming:
+                        mod_content_info = f"[STREAMING] Size: {len(flow.request.content)} bytes, Type: {mod_ct}, Transfer-Encoding: {mod_te}"
+                    elif mod_is_binary:
+                        mod_content_info = f"[BINARY] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
+                    else:
+                        mod_content_info = f"[LARGE_FILE] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
+                elif flow.request.content:
+                    try:
+                        mod_content_info = flow.request.content.decode('utf-8', errors='ignore')
+                    except UnicodeDecodeError:
+                        mod_content_info = f"[ENCODED] Size: {len(flow.request.content)} bytes"
+                else:
+                    mod_content_info = ''
+                request_info['modified_headers'] = dict(flow.request.headers)
+                request_info['modified_content'] = mod_content_info
+                request_info['modified_content_size'] = len(flow.request.content) if flow.request.content else 0
+                request_info['modified_is_multipart'] = mod_is_multipart
 
-        if capture_this:
-            self.traffic_data.append(request_info)
-            self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+            if capture_this:
+                with self._traffic_state_lock:
+                    self.traffic_data.append(request_info)
+                self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
 
-        # 添加处理时间
-        flow.request.timestamp_start = start_time
+            # 添加处理时间
+            flow.request.timestamp_start = start_time
+        except Exception as e:
+            logger.exception("UProxier request() 处理异常，已写入兜底记录")
+            if capture_this:
+                self._emit_handler_failure_record(request_info, e, status='request_handler_error')
+            raise
 
     def http_connect(self, flow: http.HTTPFlow) -> None:
         """在存在请求短路规则时接受 HTTPS CONNECT，避免上游 502，确保内层请求进入 request()."""
@@ -510,11 +597,12 @@ class ProxyAddon:
         except Exception:
             pass
         # 非捕获请求：不采集响应、不应用规则，直接返回
+        # 注意：metadata 缺省视为未捕获（勿用 default=True，否则易误判并产生「无法匹配」的孤儿 response）
         try:
-            if not bool(flow.metadata.get("uproxier_capture", True)):
+            if not flow.metadata.get("uproxier_capture"):
                 return
         except Exception:
-            pass
+            return
         end_time = time.time()
 
         request_info = None
@@ -525,204 +613,328 @@ class ProxyAddon:
         except Exception:
             req_id = None
 
-        if req_id is not None:
-            for req in self.traffic_data:
-                if req.get('id') == req_id:
-                    request_info = req
-                    break
-                
+        pretty_url = getattr(flow.request, "pretty_url", "") or ""
+
+        with self._traffic_state_lock:
+            if req_id is not None:
+                for req in self.traffic_data:
+                    if self._same_traffic_id(req.get("id"), req_id):
+                        request_info = req
+                        break
+
+            if request_info is None:
+                for req in self.traffic_data:
+                    if self._pending_row_matches_request_url(req, pretty_url):
+                        request_info = req
+                        break
+
         if request_info is None:
-            for req in self.traffic_data:
-                if req.get('url') == flow.request.pretty_url and req.get('status') == 'pending':
-                    request_info = req
-                    break
+            logger.warning(
+                "response 未匹配到 traffic 记录（将无 completed 更新/落盘）: method=%s url=%s metadata_req_id=%s",
+                getattr(flow.request, "method", "?"),
+                pretty_url,
+                req_id,
+            )
 
         if request_info:
-            # 在应用响应规则前，先快照原始响应（用于对比展示）
-            orig_resp_headers = dict(flow.response.headers)
-            _orig = self._analyze_response_content(orig_resp_headers, flow.response.content)
-            orig_resp_content_info = _orig['preview']
-
             try:
-                setattr(flow.response, 'request', flow.request)
-            except Exception:
-                pass
-            modified_response = self.rules_engine.apply_response_rules(flow.response)
-            if modified_response:
-                flow.response = modified_response
-                request_info['response_modified'] = True
-                request_info['response_original_headers'] = orig_resp_headers
-                request_info['response_original_content'] = orig_resp_content_info
+                # 在应用响应规则前，先快照原始响应（用于对比展示）
+                orig_resp_headers = dict(flow.response.headers)
+                _orig = self._analyze_response_content(orig_resp_headers, flow.response.content)
+                orig_resp_content_info = _orig['preview']
 
-            # 更新响应信息（以规则处理后的响应为准）
-            _final = self._analyze_response_content(dict(flow.response.headers), flow.response.content)
-            response_content_type = _final['content_type']
-            response_transfer_encoding = _final['transfer_encoding']
-            response_content_length = _final['content_length']
-            is_response_binary = _final['is_binary']
-            is_response_streaming = _final['is_streaming']
-            is_response_large_file = _final['is_large_file']
-            response_content_info = _final['preview']
-
-            # 非阻塞延迟：在独立线程/计时器中完成等待，避免阻塞当前处理
-            delay_time = flow.response.headers.get('X-Delay-Time')
-            jitter = flow.response.headers.get('X-Delay-Jitter')
-            distrib = flow.response.headers.get('X-Delay-Distrib')
-            p50 = flow.response.headers.get('X-Delay-P50')
-            p95 = flow.response.headers.get('X-Delay-P95')
-            p99 = flow.response.headers.get('X-Delay-P99')
-
-            def _compute_delay_ms() -> int:
                 try:
-                    import random
-                    base_ms = int(delay_time) if delay_time else 0
-                    jit_ms = int(jitter) if jitter else 0
-                    _total_ms = base_ms
-                    if distrib:
-                        d = str(distrib).lower()
-                        if d == 'uniform':
-                            _total_ms += random.randint(0, jit_ms)
-                        elif d == 'normal':
-                            _total_ms = max(0, int(random.normalvariate(base_ms, max(1.0, jit_ms / 2))))
-                        elif d == 'exponential':
-                            lam = 1.0 / max(1, base_ms if base_ms > 0 else 1)
-                            _total_ms = int(random.expovariate(lam))
-                    elif jit_ms:
-                        _total_ms += random.randint(0, jit_ms)
-                    buckets = []
-                    if p50:
-                        buckets.append((0.5, int(p50)))
-                    if p95:
-                        buckets.append((0.45, int(p95)))
-                    if p99:
-                        buckets.append((0.04, int(p99)))
-                    if buckets:
-                        r = random.random()
-                        acc = 0.0
-                        for prob, val in buckets:
-                            acc += prob
-                            if r <= acc:
-                                _total_ms = val
-                                break
-                    return max(0, int(_total_ms))
+                    setattr(flow.response, 'request', flow.request)
                 except Exception:
-                    return 0
+                    pass
+                modified_response = self.rules_engine.apply_response_rules(flow.response)
+                if modified_response:
+                    flow.response = modified_response
+                    request_info['response_modified'] = True
+                    request_info['response_original_headers'] = orig_resp_headers
+                    request_info['response_original_content'] = orig_resp_content_info
 
-            total_ms = _compute_delay_ms()
-            if total_ms > 0:
-                has_reply = (hasattr(flow, 'reply') and getattr(flow, 'reply', None) is not None and
-                             hasattr(getattr(flow, 'reply', None), 'take') and hasattr(getattr(flow, 'reply', None),
-                                                                                       'send'))
-                flow.response.headers['X-Delay-Applied'] = 'true'
-                flow.response.headers['X-Delay-Effective'] = str(int(total_ms))
+                # 更新响应信息（以规则处理后的响应为准）
+                _final = self._analyze_response_content(dict(flow.response.headers), flow.response.content)
+                response_content_type = _final['content_type']
+                response_transfer_encoding = _final['transfer_encoding']
+                response_content_length = _final['content_length']
+                is_response_binary = _final['is_binary']
+                is_response_streaming = _final['is_streaming']
+                is_response_large_file = _final['is_large_file']
+                response_content_info = _final['preview']
 
-                log_msg = f"响应延迟{' (降级)' if not has_reply else ''} {total_ms}ms → {flow.request.method} {flow.request.pretty_url}"
-                logger.info(log_msg)
+                # 非阻塞延迟：在独立线程/计时器中完成等待，避免阻塞当前处理
+                delay_time = flow.response.headers.get('X-Delay-Time')
+                jitter = flow.response.headers.get('X-Delay-Jitter')
+                distrib = flow.response.headers.get('X-Delay-Distrib')
+                p50 = flow.response.headers.get('X-Delay-P50')
+                p95 = flow.response.headers.get('X-Delay-P95')
+                p99 = flow.response.headers.get('X-Delay-P99')
 
-                if has_reply:
-                    getattr(flow, 'reply').take()
+                def _compute_delay_ms() -> int:
+                    try:
+                        import random
+                        base_ms = int(delay_time) if delay_time else 0
+                        jit_ms = int(jitter) if jitter else 0
+                        _total_ms = base_ms
+                        if distrib:
+                            d = str(distrib).lower()
+                            if d == 'uniform':
+                                _total_ms += random.randint(0, jit_ms)
+                            elif d == 'normal':
+                                _total_ms = max(0, int(random.normalvariate(base_ms, max(1.0, jit_ms / 2))))
+                            elif d == 'exponential':
+                                lam = 1.0 / max(1, base_ms if base_ms > 0 else 1)
+                                _total_ms = int(random.expovariate(lam))
+                        elif jit_ms:
+                            _total_ms += random.randint(0, jit_ms)
+                        buckets = []
+                        if p50:
+                            buckets.append((0.5, int(p50)))
+                        if p95:
+                            buckets.append((0.45, int(p95)))
+                        if p99:
+                            buckets.append((0.04, int(p99)))
+                        if buckets:
+                            r = random.random()
+                            acc = 0.0
+                            for prob, val in buckets:
+                                acc += prob
+                                if r <= acc:
+                                    _total_ms = val
+                                    break
+                        return max(0, int(_total_ms))
+                    except Exception:
+                        return 0
 
-                # 阻塞延迟
-                time.sleep(total_ms / 1000.0)
+                total_ms = _compute_delay_ms()
+                if total_ms > 0:
+                    has_reply = (hasattr(flow, 'reply') and getattr(flow, 'reply', None) is not None and
+                                 hasattr(getattr(flow, 'reply', None), 'take') and hasattr(getattr(flow, 'reply', None),
+                                                                                           'send'))
+                    flow.response.headers['X-Delay-Applied'] = 'true'
+                    flow.response.headers['X-Delay-Effective'] = str(int(total_ms))
 
-                if has_reply:
-                    getattr(flow, 'reply').send()
+                    log_msg = f"响应延迟{' (降级)' if not has_reply else ''} {total_ms}ms → {flow.request.method} {flow.request.pretty_url}"
+                    logger.info(log_msg)
 
-                request_info['response_time'] = (request_info.get('response_time') or 0) + (total_ms / 1000.0)
+                    if has_reply:
+                        getattr(flow, 'reply').take()
 
-            # 计算最终响应信息（在延迟完成后再写入，以保持前后端一致）
-            _final2 = self._analyze_response_content(dict(flow.response.headers), flow.response.content)
-            response_content_type = _final2['content_type']
-            response_transfer_encoding = _final2['transfer_encoding']
-            response_content_length = _final2['content_length']
-            is_response_binary = _final2['is_binary']
-            is_response_image = _final2.get('is_image', False)
-            is_response_video = _final2.get('is_video', False)
-            is_response_streaming = _final2['is_streaming']
-            is_response_large_file = _final2['is_large_file']
-            response_content_info = _final2['preview']
+                    # 阻塞延迟
+                    time.sleep(total_ms / 1000.0)
 
-            # 最终更新（此时如果设置了延迟，已经延后完成）
-            request_info.update({
-                'status': 'completed',
-                'response_status': flow.response.status_code,
-                'response_headers': dict(flow.response.headers),
-                'response_content': response_content_info,
-                'response_content_size': len(flow.response.content) if flow.response.content else 0,
-                'is_response_binary': is_response_binary,
-                'is_response_image': is_response_image,
-                'is_response_video': is_response_video,
-                'is_response_streaming': is_response_streaming,
-                'is_response_large_file': is_response_large_file,
-                'response_transfer_encoding': response_transfer_encoding,
-                'response_content_length': response_content_length,
-                'response_time': (end_time - flow.request.timestamp_start) + (
-                    total_ms / 1000.0 if 'total_ms' in locals() and total_ms else 0),
-                'response_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
+                    if has_reply:
+                        getattr(flow, 'reply').send()
 
-            # 为图片/视频生成预览（限制大小；与 save_binary_content 解耦，默认只按阈值与类型）。
-            try:
-                if (is_response_image or is_response_video) and flow.response.content:
-                    max_bytes = int(self.capture_config.get('binary_preview_max_bytes', 5242880))
-                    if len(flow.response.content) <= max_bytes:
-                        # 直接注册到 Web 内存缓存，返回 URL
-                        try:
-                            url = self.web_interface.register_binary_preview(
-                                request_info.get('id'), flow.response.content,
-                                response_content_type or 'application/octet-stream'
-                            )
-                            if url:
-                                request_info['response_preview_url'] = url
-                                request_info[
-                                    'response_preview_mime'] = response_content_type or 'application/octet-stream'
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                    request_info['response_time'] = (request_info.get('response_time') or 0) + (total_ms / 1000.0)
 
-            # 更新 Web 界面数据（仅在最终状态写入）
-            self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+                # 计算最终响应信息（在延迟完成后再写入，以保持前后端一致）
+                _final2 = self._analyze_response_content(dict(flow.response.headers), flow.response.content)
+                response_content_type = _final2['content_type']
+                response_transfer_encoding = _final2['transfer_encoding']
+                response_content_length = _final2['content_length']
+                is_response_binary = _final2['is_binary']
+                is_response_image = _final2.get('is_image', False)
+                is_response_video = _final2.get('is_video', False)
+                is_response_streaming = _final2['is_streaming']
+                is_response_large_file = _final2['is_large_file']
+                response_content_info = _final2['preview']
 
-            self._maybe_persist(request_info)
+                # 最终更新（此时如果设置了延迟，已经延后完成）
+                request_info.update({
+                    'status': 'completed',
+                    'response_status': flow.response.status_code,
+                    'response_headers': dict(flow.response.headers),
+                    'response_content': response_content_info,
+                    'response_content_size': len(flow.response.content) if flow.response.content else 0,
+                    'is_response_binary': is_response_binary,
+                    'is_response_image': is_response_image,
+                    'is_response_video': is_response_video,
+                    'is_response_streaming': is_response_streaming,
+                    'is_response_large_file': is_response_large_file,
+                    'response_transfer_encoding': response_transfer_encoding,
+                    'response_content_length': response_content_length,
+                    'response_time': (end_time - flow.request.timestamp_start) + (
+                        total_ms / 1000.0 if 'total_ms' in locals() and total_ms else 0),
+                    'response_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+                # 为图片/视频生成预览（限制大小；与 save_binary_content 解耦，默认只按阈值与类型）。
+                try:
+                    if (is_response_image or is_response_video) and flow.response.content:
+                        max_bytes = int(self.capture_config.get('binary_preview_max_bytes', 5242880))
+                        if len(flow.response.content) <= max_bytes:
+                            # 直接注册到 Web 内存缓存，返回 URL
+                            try:
+                                url = self.web_interface.register_binary_preview(
+                                    request_info.get('id'), flow.response.content,
+                                    response_content_type or 'application/octet-stream'
+                                )
+                                if url:
+                                    request_info['response_preview_url'] = url
+                                    request_info[
+                                        'response_preview_mime'] = response_content_type or 'application/octet-stream'
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                # 更新 Web 界面数据（仅在最终状态写入）
+                self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+
+                self._maybe_persist(request_info)
+
+            except Exception as e:
+                logger.exception("UProxier response() 处理异常，已写入兜底记录")
+                self._record_response_stage_failure(request_info, e, flow)
+                raise
 
     def error(self, flow: http.HTTPFlow) -> None:
         """处理错误"""
         logger.error(f"代理错误: {flow.error}")
 
-        # 更新请求状态为错误（优先用 request_id 匹配，兼容 rewrite/redirect 后 URL 变化）
-        req_id = flow.metadata.get("uproxier_request_id") if hasattr(flow.metadata, 'get') else None
+        try:
+            if flow.request.port in self.internal_web_ports:
+                return
+            if (flow.request.pretty_host, flow.request.port) in self.internal_targets:
+                return
+        except Exception:
+            pass
+        try:
+            if not flow.metadata.get("uproxier_capture"):
+                return
+        except Exception:
+            return
+
+        try:
+            req_id = flow.metadata.get("uproxier_request_id") if hasattr(flow.metadata, 'get') else None
+        except Exception:
+            req_id = None
         target = None
-        if req_id is not None:
-            for req in self.traffic_data:
-                if req.get('id') == req_id:
-                    target = req
-                    break
-        if target is None:
-            for req in self.traffic_data:
-                if req.get('url') == flow.request.pretty_url and req.get('status') == 'pending':
-                    target = req
-                    break
+        pretty_url = getattr(flow.request, "pretty_url", "") or ""
+
+        with self._traffic_state_lock:
+            if req_id is not None:
+                for req in self.traffic_data:
+                    if self._same_traffic_id(req.get("id"), req_id):
+                        target = req
+                        break
+            if target is None:
+                for req in self.traffic_data:
+                    if self._pending_row_matches_request_url(req, pretty_url):
+                        target = req
+                        break
         if target is not None:
             target.update({
                 'status': 'error',
                 'error': str(flow.error),
                 'error_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
+            try:
+                self.web_interface.update_traffic_data(self.traffic_data, changed=target)
+            except Exception as e2:
+                logger.warning("error() 更新 Web 展示失败（仍尝试落盘）: %s", e2)
             self._maybe_persist(target)
+
+    def _minimal_persist_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """主记录无法 JSON 序列化时，仅抽取关键字段兜底落盘。"""
+        keys = (
+            'id', 'method', 'url', 'host', 'port', 'path', 'scheme', 'timestamp',
+            'status', 'error', 'error_timestamp',
+            'handler_error', 'handler_error_timestamp',
+            'response_status', 'response_timestamp',
+            'terminated_before_response', 'persist_timestamp',
+        )
+        out: Dict[str, Any] = {
+            'persist_minimal_fallback': True,
+            'persist_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        for k in keys:
+            if k in record:
+                out[k] = record[k]
+        return out
+
+    def _emit_handler_failure_record(
+        self, request_info: Dict[str, Any], exc: BaseException, *, status: str
+    ) -> None:
+        """请求阶段异常时仍入库、入 Web、落盘。"""
+        request_info['status'] = status
+        request_info['handler_error'] = f'{type(exc).__name__}: {exc}'
+        request_info['handler_error_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._traffic_state_lock:
+            if request_info not in self.traffic_data:
+                self.traffic_data.append(request_info)
+        try:
+            self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+        except Exception as e2:
+            logger.warning("更新 Web 展示失败（仍尝试落盘）: %s", e2)
+        self._maybe_persist(request_info)
+
+    def _record_response_stage_failure(
+        self, request_info: Dict[str, Any], exc: BaseException, flow: http.HTTPFlow
+    ) -> None:
+        """响应阶段异常时写入可诊断状态并落盘。"""
+        request_info['status'] = 'response_handler_error'
+        request_info['handler_error'] = f'{type(exc).__name__}: {exc}'
+        request_info['handler_error_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            if getattr(flow, 'response', None) is not None:
+                request_info.setdefault('response_status', flow.response.status_code)
+        except Exception:
+            pass
+        try:
+            self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+        except Exception as e2:
+            logger.warning("更新 Web 展示失败（仍尝试落盘）: %s", e2)
+        self._maybe_persist(request_info)
 
     def _maybe_persist(self, record: Optional[Dict[str, Any]]) -> None:
         if not record or not self.save_path:
             return
+        line: Optional[str] = None
+        try:
+            line = json.dumps(record, ensure_ascii=False, default=str) + '\n'
+        except (TypeError, ValueError) as e:
+            logger.warning("请求记录 JSON 序列化失败，降级为最小字段落盘: %s", e)
+            try:
+                line = json.dumps(
+                    self._minimal_persist_record(record), ensure_ascii=False, default=str) + '\n'
+            except Exception as e2:
+                logger.error("最小字段记录仍无法序列化: %s", e2)
+                return
         try:
             with open(self.save_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(record, ensure_ascii=False) + '\n')
+                f.write(line)
         except Exception as e:
-            logger.error(f"保存请求数据失败: {e}")
+            logger.error("保存请求数据失败: %s", e)
 
     def clear_traffic_state(self) -> None:
-        self.traffic_data.clear()
-        self.request_count = 0
+        with self._traffic_state_lock:
+            self.traffic_data.clear()
+            self.request_count = 0
+
+    def flush_pending_records(self) -> None:
+        """
+        停止前兜底落盘仍处于 pending 状态的请求。
+        说明：
+        - 正常 completed/error 会在 response()/error() 中写盘；
+        - 该方法仅补写未完成请求，尽量减少进程终止时的日志丢失。
+        """
+        if not self.save_path:
+            return
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with self._traffic_state_lock:
+                pending_rows = [req for req in self.traffic_data if req.get('status') == 'pending']
+            for req in pending_rows:
+                rec = dict(req)
+                rec.setdefault('terminated_before_response', True)
+                rec.setdefault('persist_timestamp', now)
+                self._maybe_persist(rec)
+        except Exception as e:
+            logger.warning(f"停止前补写 pending 请求失败: {e}")
 
 
 class ProxyServer:
@@ -979,7 +1191,11 @@ class ProxyServer:
             self.stop()
 
     def start_async(self, port: int = 8001, web_port: int = 8002) -> None:
-        """异步启动代理服务器（非阻塞）"""
+        """异步启动代理服务器（非阻塞）。
+
+        子进程默认静默且丢弃标准输出。可将环境变量 ``UPROXIER_LOG_FILE`` 设为路径，
+        使子进程 stdout/stderr 追加写入该文件。
+        """
         import subprocess
         import sys
         import os
@@ -998,34 +1214,65 @@ class ProxyServer:
             else:
                 cmd.append("--disable-https")
 
+        log_file = (os.environ.get("UPROXIER_LOG_FILE") or "").strip()
+        log_fp = None
+        popen_kw: Dict[str, Any] = {"stdin": subprocess.DEVNULL, "cwd": os.getcwd()}
+        if log_file:
+            log_fp = open(log_file, "a", encoding="utf-8", buffering=1)
+            popen_kw["stdout"] = log_fp
+            popen_kw["stderr"] = subprocess.STDOUT
+        else:
+            # 勿使用 stderr=PIPE 且长期不读，否则子进程写满管道会阻塞
+            popen_kw["stdout"] = subprocess.DEVNULL
+            popen_kw["stderr"] = subprocess.DEVNULL
+
         try:
             # 启动后台进程
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,
-                cwd=os.getcwd()
-            )
+            process = subprocess.Popen(cmd, **popen_kw)
 
-            max_wait = 3.0
-            wait_interval = 0.1
-            waited = 0.0
+            # 与前台 ``start()`` 不同：此前仅 sleep ~0.5s 即返回，子进程可能尚未 bind 端口，
+            # 自动化紧接着打流量会出现「偶发未进代理 / 无 JSONL」。此处与 CLI ``--daemon`` 类似，
+            # 轮询直至代理端口与 Web 端口均可连（或超时）。
+            max_wait_s = 15.0
+            poll_interval = 0.1
+            deadline = time.monotonic() + max_wait_s
+            ready = False
 
-            while waited < max_wait:
-                time.sleep(wait_interval)
-                waited += wait_interval
-
-                # 检查进程是否还在运行
+            while time.monotonic() < deadline:
                 if process.poll() is not None:
-                    # 进程已退出，获取错误信息
-                    _, stderr = process.communicate()
-                    error_msg = stderr.decode() if stderr else "无错误信息"
+                    out, err = process.communicate()
+                    snippets: List[str] = []
+                    if err:
+                        snippets.append(err.decode(errors="replace").strip())
+                    if out:
+                        snippets.append(out.decode(errors="replace").strip())
+                    if not snippets and log_file:
+                        snippets.append(f"请查看日志文件: {log_file}")
+                    if not snippets:
+                        snippets.append(
+                            "无捕获的 stderr/stdout（默认丢弃子进程输出；可设 UPROXIER_LOG_FILE）"
+                        )
+                    error_msg = " | ".join(s for s in snippets if s)
                     raise ProxyStartupError(f"后台进程启动失败: {error_msg}", port=port, web_port=web_port)
 
-                # 如果进程还在运行且等待时间足够，可以退出
-                if waited >= 0.5:  # 至少等待 0.5 秒
+                if _local_port_accepting_connections(port) and _local_port_accepting_connections(web_port):
+                    ready = True
                     break
+
+                time.sleep(poll_interval)
+
+            if not ready:
+                try:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=3)
+                except Exception:
+                    pass
+                raise ProxyStartupError(
+                    f"后台进程启动超时（{max_wait_s}s 内 {port}/{web_port} 端口未就绪）。"
+                    f"若 CPU 较慢可适当延后测试流量。",
+                    port=port, web_port=web_port,
+                )
 
             # 设置运行状态
             self.is_running = True
@@ -1040,6 +1287,12 @@ class ProxyServer:
         except Exception as e:
             logger.error(f"启动失败: {e}")
             raise
+        finally:
+            if log_fp is not None:
+                try:
+                    log_fp.close()
+                except Exception:
+                    pass
 
     def stop(self) -> None:
         """停止代理服务器"""
@@ -1067,6 +1320,13 @@ class ProxyServer:
                     logger.warning(f"停止 master 时发生错误: {e}")
             except Exception as e:
                 logger.warning(f"停止 master 时发生异常: {e}")
+
+        # 在 master 停止后兜底补写仍未完成的请求，尽量减少日志丢失
+        if self.addon:
+            try:
+                self.addon.flush_pending_records()
+            except Exception as e:
+                logger.warning(f"补写 pending 请求失败: {e}")
 
         if self.web_interface:
             try:
