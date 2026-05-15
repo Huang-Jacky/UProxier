@@ -23,6 +23,7 @@ from uproxier.rules_engine import RulesEngine, default_config_path
 from uproxier.web_interface import WebInterface
 from uproxier.utils.http import get_header_value
 from uproxier.utils.network import get_display_host
+from uproxier.utils.traffic import record_for_json_output
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,9 @@ class ProxyAddon:
             'enable_large_files': False,
             'large_file_threshold': 1048576,  # 1MB
             'save_binary_content': False,
-            'binary_preview_max_bytes': 5242880  # 5MB 预览上限（仅用于预览，不做持久化）
+            'binary_preview_max_bytes': 5242880,  # 5MB 预览上限（仅用于预览，不做持久化）
+            # 为 true 且使用 --save 时，在仍为 pending 时再追加一行 JSONL（会与 completed 形成两行，校验场景请保持 false）
+            'jsonl_write_pending': False,
         }
 
     def _resolve_extends_for_capture(self, config: Dict, current_dir: Path) -> Dict:
@@ -337,6 +340,82 @@ class ProxyAddon:
             return str(stored) == str(meta)
 
     @staticmethod
+    def _flow_id_str(flow: http.HTTPFlow) -> str:
+        """mitmproxy 每条 flow 的稳定 id，用于 request/response 精确关联（优于同 URL 多 pending）。"""
+        try:
+            fid = getattr(flow, "id", None)
+            if fid is not None and str(fid).strip():
+                return str(fid).strip()
+        except Exception:
+            pass
+        return str(id(flow))
+
+    def _jsonl_pending_enabled(self) -> bool:
+        if not self.save_path:
+            return False
+        return bool(self.capture_config.get("jsonl_write_pending", False))
+
+    def _emit_pending_jsonl_once(self, request_info: Dict[str, Any]) -> None:
+        """每条请求最多写一行 pending 快照（避免短路等路径重复写）。"""
+        if not self._jsonl_pending_enabled() or request_info.get("_jsonl_pending_line_written"):
+            return
+        request_info["_jsonl_pending_line_written"] = True
+        self._maybe_persist(request_info, jsonl_phase="pending")
+
+    def _find_traffic_row_for_flow(self, flow: http.HTTPFlow) -> Optional[Dict[str, Any]]:
+        """按 flow_id → request_id →「唯一 URL pending」顺序解析 traffic 行。"""
+        flow_id = None
+        req_id = None
+        try:
+            flow_id = flow.metadata.get("uproxier_flow_id")
+        except Exception:
+            flow_id = None
+        try:
+            req_id = flow.metadata.get("uproxier_request_id")
+        except Exception:
+            req_id = None
+        pretty_url = getattr(flow.request, "pretty_url", "") or ""
+        with self._traffic_state_lock:
+            if flow_id is not None:
+                s = str(flow_id)
+                for req in self.traffic_data:
+                    if str(req.get("flow_id") or "") == s:
+                        return req
+            if req_id is not None:
+                for req in self.traffic_data:
+                    if self._same_traffic_id(req.get("id"), req_id):
+                        return req
+            cands = [r for r in self.traffic_data if self._pending_row_matches_request_url(r, pretty_url)]
+            if len(cands) == 1:
+                return cands[0]
+            if len(cands) > 1:
+                logger.warning(
+                    "多个 pending 同 URL，跳过 URL 回退以免错绑: n=%s url=%s",
+                    len(cands),
+                    pretty_url[:160],
+                )
+        return None
+
+    def _persist_response_orphan(self, flow: http.HTTPFlow, pretty_url: str, req_id: Any, flow_id: Any) -> None:
+        """response 无法关联到 traffic 行时仍写一条 JSONL 便于对账（修复点 3）。"""
+        if not self.save_path:
+            return
+        row: Dict[str, Any] = {
+            "jsonl_phase": "orphan_response",
+            "method": getattr(flow.request, "method", "?"),
+            "url": pretty_url,
+            "metadata_req_id": req_id,
+            "flow_id": flow_id,
+            "persist_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        try:
+            if getattr(flow, "response", None) is not None:
+                row["response_status"] = flow.response.status_code
+        except Exception:
+            pass
+        self._maybe_persist(row)
+
+    @staticmethod
     def _pending_row_matches_request_url(req: Dict[str, Any], pretty_url: str) -> bool:
         """pending 行与当前请求的 pretty_url 对齐（含规则改写后的 URL）。"""
         if req.get("status") != "pending":
@@ -403,23 +482,37 @@ class ProxyAddon:
             capture_this = True
             flow.metadata["uproxier_capture"] = True
         if not capture_this:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "跳过捕获(未命中 capture.include 或命中 exclude): %s %s",
-                    getattr(flow.request, 'method', '?'),
-                    getattr(flow.request, 'pretty_url', '?'),
-                )
+            logger.warning(
+                "跳过捕获(未命中 capture.include 或命中 exclude): %s %s",
+                getattr(flow.request, 'method', '?'),
+                getattr(flow.request, 'pretty_url', '?'),
+            )
             return
 
+        flow_id_str = self._flow_id_str(flow)
         with self._traffic_state_lock:
             self.request_count += 1
             req_id_assigned = self.request_count
             try:
                 flow.metadata["uproxier_request_id"] = req_id_assigned
+                flow.metadata["uproxier_flow_id"] = flow_id_str
             except Exception:
                 pass
+            request_info: Dict[str, Any] = {
+                'id': req_id_assigned,
+                'flow_id': flow_id_str,
+                'method': flow.request.method,
+                'url': flow.request.pretty_url,
+                'host': flow.request.pretty_host,
+                'port': flow.request.port,
+                'path': flow.request.path,
+                'scheme': flow.request.scheme,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'status': 'pending',
+            }
+            self.traffic_data.append(request_info)
 
-        # 记录请求信息（原始）
+        # 记录请求信息（原始），写入与 traffic_data 中占位行同一 dict
         content_type = (get_header_value(flow.request.headers, 'content-type') or '').lower()
         transfer_encoding = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
         content_length = get_header_value(flow.request.headers, 'content-length') or ''
@@ -455,14 +548,7 @@ class ProxyAddon:
         else:
             content_info = ''
 
-        request_info = {
-            'id': req_id_assigned,
-            'method': flow.request.method,
-            'url': flow.request.pretty_url,
-            'host': flow.request.pretty_host,
-            'port': flow.request.port,
-            'path': flow.request.path,
-            'scheme': flow.request.scheme,
+        request_info.update({
             'headers': dict(flow.request.headers),
             'content': content_info,
             'content_size': len(flow.request.content) if flow.request.content else 0,
@@ -472,9 +558,7 @@ class ProxyAddon:
             'is_large_file': is_large_file,
             'transfer_encoding': transfer_encoding,
             'content_length': content_length,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'status': 'pending'
-        }
+        })
 
         try:
             modified_request, applied_rule_names = self.rules_engine.apply_request_rules(flow.request)
@@ -502,13 +586,12 @@ class ProxyAddon:
                             'response_time': 0,
                             'response_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         })
-                        # 关键：短路分支也要归档（若命中捕获条件）
-                        if self._should_capture(flow.request):
-                            with self._traffic_state_lock:
-                                self.traffic_data.append(request_info)
+                        # 短路在此已填好响应摘要；JSONL 只在 response() 写一行，避免与 response() 内
+                        # _maybe_persist 重复（否则同一 id 两条、且首条缺 is_response_* 等字段）。
+                        flow.request.timestamp_start = start_time
+                        if capture_this:
+                            self._emit_pending_jsonl_once(request_info)
                             self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
-                            # 短路分支不会进入 response()，这里必须立刻持久化，避免漏写
-                            self._maybe_persist(request_info)
                         return
                 except Exception as e:
                     logger.exception("短路响应处理异常")
@@ -551,8 +634,7 @@ class ProxyAddon:
                 request_info['modified_is_multipart'] = mod_is_multipart
 
             if capture_this:
-                with self._traffic_state_lock:
-                    self.traffic_data.append(request_info)
+                self._emit_pending_jsonl_once(request_info)
                 self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
 
             # 添加处理时间
@@ -605,8 +687,6 @@ class ProxyAddon:
             return
         end_time = time.time()
 
-        request_info = None
-        # 优先使用 request_id 进行精确匹配，兼容 URL 被 rewrite/redirect 的场景
         req_id = None
         try:
             req_id = flow.metadata.get("uproxier_request_id")
@@ -615,18 +695,7 @@ class ProxyAddon:
 
         pretty_url = getattr(flow.request, "pretty_url", "") or ""
 
-        with self._traffic_state_lock:
-            if req_id is not None:
-                for req in self.traffic_data:
-                    if self._same_traffic_id(req.get("id"), req_id):
-                        request_info = req
-                        break
-
-            if request_info is None:
-                for req in self.traffic_data:
-                    if self._pending_row_matches_request_url(req, pretty_url):
-                        request_info = req
-                        break
+        request_info = self._find_traffic_row_for_flow(flow)
 
         if request_info is None:
             logger.warning(
@@ -635,6 +704,11 @@ class ProxyAddon:
                 pretty_url,
                 req_id,
             )
+            try:
+                fid = flow.metadata.get("uproxier_flow_id")
+            except Exception:
+                fid = None
+            self._persist_response_orphan(flow, pretty_url, req_id, fid)
 
         if request_info:
             try:
@@ -808,24 +882,7 @@ class ProxyAddon:
         except Exception:
             return
 
-        try:
-            req_id = flow.metadata.get("uproxier_request_id") if hasattr(flow.metadata, 'get') else None
-        except Exception:
-            req_id = None
-        target = None
-        pretty_url = getattr(flow.request, "pretty_url", "") or ""
-
-        with self._traffic_state_lock:
-            if req_id is not None:
-                for req in self.traffic_data:
-                    if self._same_traffic_id(req.get("id"), req_id):
-                        target = req
-                        break
-            if target is None:
-                for req in self.traffic_data:
-                    if self._pending_row_matches_request_url(req, pretty_url):
-                        target = req
-                        break
+        target = self._find_traffic_row_for_flow(flow)
         if target is not None:
             target.update({
                 'status': 'error',
@@ -836,16 +893,21 @@ class ProxyAddon:
                 self.web_interface.update_traffic_data(self.traffic_data, changed=target)
             except Exception as e2:
                 logger.warning("error() 更新 Web 展示失败（仍尝试落盘）: %s", e2)
-            self._maybe_persist(target)
+            self._maybe_persist(target, jsonl_phase='error')
 
     def _minimal_persist_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         """主记录无法 JSON 序列化时，仅抽取关键字段兜底落盘。"""
+        record = {
+            k: v for k, v in record.items()
+            if not (isinstance(k, str) and k.startswith("_"))
+        }
+        fid = record.get("flow_id")
         keys = (
             'id', 'method', 'url', 'host', 'port', 'path', 'scheme', 'timestamp',
             'status', 'error', 'error_timestamp',
             'handler_error', 'handler_error_timestamp',
             'response_status', 'response_timestamp',
-            'terminated_before_response', 'persist_timestamp',
+            'terminated_before_response', 'persist_timestamp', 'jsonl_phase',
         )
         out: Dict[str, Any] = {
             'persist_minimal_fallback': True,
@@ -854,6 +916,8 @@ class ProxyAddon:
         for k in keys:
             if k in record:
                 out[k] = record[k]
+        if fid is not None:
+            out['flow_id'] = fid
         return out
 
     def _emit_handler_failure_record(
@@ -870,7 +934,7 @@ class ProxyAddon:
             self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
         except Exception as e2:
             logger.warning("更新 Web 展示失败（仍尝试落盘）: %s", e2)
-        self._maybe_persist(request_info)
+        self._maybe_persist(request_info, jsonl_phase='request_handler_error')
 
     def _record_response_stage_failure(
         self, request_info: Dict[str, Any], exc: BaseException, flow: http.HTTPFlow
@@ -888,19 +952,20 @@ class ProxyAddon:
             self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
         except Exception as e2:
             logger.warning("更新 Web 展示失败（仍尝试落盘）: %s", e2)
-        self._maybe_persist(request_info)
+        self._maybe_persist(request_info, jsonl_phase='response_handler_error')
 
-    def _maybe_persist(self, record: Optional[Dict[str, Any]]) -> None:
+    def _maybe_persist(self, record: Optional[Dict[str, Any]], *, jsonl_phase: Optional[str] = None) -> None:
         if not record or not self.save_path:
             return
+        payload = record_for_json_output(record, jsonl_phase=jsonl_phase)
         line: Optional[str] = None
         try:
-            line = json.dumps(record, ensure_ascii=False, default=str) + '\n'
+            line = json.dumps(payload, ensure_ascii=False, default=str) + '\n'
         except (TypeError, ValueError) as e:
             logger.warning("请求记录 JSON 序列化失败，降级为最小字段落盘: %s", e)
             try:
                 line = json.dumps(
-                    self._minimal_persist_record(record), ensure_ascii=False, default=str) + '\n'
+                    self._minimal_persist_record(payload), ensure_ascii=False, default=str) + '\n'
             except Exception as e2:
                 logger.error("最小字段记录仍无法序列化: %s", e2)
                 return
@@ -932,7 +997,7 @@ class ProxyAddon:
                 rec = dict(req)
                 rec.setdefault('terminated_before_response', True)
                 rec.setdefault('persist_timestamp', now)
-                self._maybe_persist(rec)
+                self._maybe_persist(rec, jsonl_phase='terminated')
         except Exception as e:
             logger.warning(f"停止前补写 pending 请求失败: {e}")
 

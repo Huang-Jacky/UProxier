@@ -17,6 +17,7 @@ from flask_cors import CORS
 
 from uproxier.version import get_version, get_author
 from uproxier.utils.network import get_local_ip, get_display_host
+from uproxier.utils.traffic import record_for_json_output
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class WebInterface:
         self._traffic_lock = threading.RLock()
         # 清空代数：递增后队列中更旧代的任务会被丢弃，避免 clear 后“晚到”的 upsert 把旧数据写回
         self._traffic_clear_gen: int = 0
-        self._traffic_queue: Queue = Queue()
+        self._traffic_queue: Queue = Queue(maxsize=0)
         self._traffic_worker = threading.Thread(
             target=self._traffic_worker_loop,
             daemon=True,
@@ -113,7 +114,7 @@ class WebInterface:
                     filtered_data = list(self.traffic_data)
                 total = len(self.traffic_data)
             return jsonify({
-                'data': filtered_data,
+                'data': [record_for_json_output(dict(r)) for r in filtered_data],
                 'total': total,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
@@ -133,7 +134,7 @@ class WebInterface:
                     from io import BytesIO
                     buf = BytesIO()
                     for rec in data:
-                        line = json.dumps(rec, ensure_ascii=False) + '\n'
+                        line = json.dumps(record_for_json_output(rec), ensure_ascii=False) + '\n'
                         buf.write(line.encode('utf-8'))
                     buf.seek(0)
                     return Response(buf, mimetype='application/jsonl', headers={
@@ -217,7 +218,8 @@ class WebInterface:
                         'Content-Disposition': 'attachment; filename="traffic.csv"'
                     })
                 else:  # json
-                    return Response(json.dumps(data, ensure_ascii=False), mimetype='application/json', headers={
+                    out_rows = [record_for_json_output(r) for r in data]
+                    return Response(json.dumps(out_rows, ensure_ascii=False), mimetype='application/json', headers={
                         'Content-Disposition': 'attachment; filename="traffic.json"'
                     })
             except Exception as e:
@@ -237,13 +239,16 @@ class WebInterface:
             lim = min(max(lim, 1), 500)
 
             def gen():
-                q: Queue = Queue(maxsize=16)
+                q: Queue = Queue(maxsize=0)
                 self._traffic_subscribers.append(q)
                 try:
                     # 首次推送最近数据（条数与 /api/traffic、前端选项一致）
                     with self._traffic_lock:
                         snap = list(self.traffic_data[-lim:])
-                    snapshot = {'type': 'traffic', 'data': snap}
+                    snapshot = {
+                        'type': 'traffic',
+                        'data': [record_for_json_output(dict(r)) for r in snap],
+                    }
                     yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
                     # 持续消费，带心跳，避免中间设备/浏览器断开
                     while True:
@@ -282,7 +287,7 @@ class WebInterface:
         @self.app.route('/api/stream/stats')
         def stream_stats():
             def gen():
-                q: Queue = Queue(maxsize=16)
+                q: Queue = Queue(maxsize=0)
                 self._stats_subscribers.append(q)
                 try:
                     # 首次推送当前统计
@@ -490,16 +495,28 @@ class WebInterface:
                 data = base64.b64decode(b64)
                 self._binary_previews[int(rid)] = {'data': data, 'mime': mime}
                 rec['response_preview_url'] = f"/api/preview/{rid}"
-            return rec
+            return record_for_json_output(rec)
         except Exception:
-            return rec
+            try:
+                return record_for_json_output(rec)
+            except Exception:
+                return rec
+
+    @staticmethod
+    def _same_row_id(a: Any, b: Any) -> bool:
+        if a is None or b is None:
+            return False
+        try:
+            return int(a) == int(b)
+        except (TypeError, ValueError):
+            return str(a) == str(b)
 
     def _worker_apply_upsert_locked(self, rec: Dict[str, Any]) -> Dict[str, Any]:
         rec = self._materialize_preview_record(rec)
         rid = rec.get('id')
         if rid is not None:
             for i, ex in enumerate(self.traffic_data):
-                if ex.get('id') == rid:
+                if self._same_row_id(ex.get('id'), rid):
                     self.traffic_data[i] = rec
                     return rec
         self.traffic_data.append(rec)
@@ -518,8 +535,10 @@ class WebInterface:
                     chunk = list(self.traffic_data[-1:]) if self.traffic_data else []
                 payload = {'type': 'traffic', 'data': chunk}
             for q in list(self._traffic_subscribers):
-                if not q.full():
+                try:
                     q.put(payload)
+                except Exception as e:
+                    logger.warning("SSE traffic 推送失败: %s", e)
         except Exception:
             pass
 
@@ -527,8 +546,10 @@ class WebInterface:
         try:
             stats = self._current_stats_payload()
             for q in list(self._stats_subscribers):
-                if not q.full():
+                try:
                     q.put(stats)
+                except Exception as e:
+                    logger.warning("SSE stats 推送失败: %s", e)
         except Exception:
             pass
 
