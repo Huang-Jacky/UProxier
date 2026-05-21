@@ -439,6 +439,149 @@ class ProxyAddon:
         except ValueError:
             return None
 
+    @staticmethod
+    def _safe_message_content(msg: Any) -> Optional[bytes]:
+        """
+        安全读取 mitmproxy message 内容。
+
+        说明：
+        - ``message.content`` 在 Content-Encoding 非法时会抛 ValueError；
+        - 这里优先使用 ``get_content(strict=False)``，失败后回退到 ``raw_content``。
+        """
+        if msg is None:
+            return None
+        getter = getattr(msg, "get_content", None)
+        if callable(getter):
+            try:
+                return getter(strict=False)
+            except TypeError:
+                try:
+                    return getter()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        try:
+            return getattr(msg, "raw_content", None)
+        except Exception:
+            return None
+
+    def _internal_skip_reason(self, flow: http.HTTPFlow) -> Optional[str]:
+        """返回内部请求跳过原因；非内部请求返回 None。"""
+        try:
+            if flow.request.port in self.internal_web_ports:
+                return "internal_web_port"
+            if (flow.request.pretty_host, flow.request.port) in self.internal_targets:
+                return "internal_target"
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _set_flow_capture_flag(flow: http.HTTPFlow, capture: bool, skip_reason: Optional[str] = None) -> None:
+        try:
+            flow.metadata["uproxier_capture"] = bool(capture)
+            if skip_reason is not None:
+                flow.metadata["uproxier_skip"] = skip_reason
+        except Exception:
+            pass
+
+    def _find_tracked_row_locked(self, flow_id: Optional[str], req_id: Any) -> Optional[Dict[str, Any]]:
+        """仅按 flow_id / request_id 精确匹配已存在的流量行（调用方需持锁）。"""
+        if flow_id is not None:
+            s = str(flow_id)
+            for req in self.traffic_data:
+                if str(req.get("flow_id") or "") == s:
+                    return req
+        if req_id is not None:
+            for req in self.traffic_data:
+                if self._same_traffic_id(req.get("id"), req_id):
+                    return req
+        return None
+
+    def _ensure_request_tracking_row(
+        self, flow: http.HTTPFlow, *, log_capture_skip: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """
+        确保当前 flow 已建立最小流量记录。
+
+        建记录前移到 requestheaders()：
+        - POST/PUT 等带 body 请求在 body 未读完前也有最小记录；
+        - 后续 request()/response()/error() 只补全同一条记录。
+        """
+        skip_reason = self._internal_skip_reason(flow)
+        if skip_reason:
+            self._set_flow_capture_flag(flow, False, skip_reason)
+            return None
+
+        try:
+            capture_this = flow.metadata.get("uproxier_capture")
+        except Exception:
+            capture_this = None
+
+        if capture_this is None:
+            try:
+                capture_this = self._should_capture(flow.request)
+            except Exception:
+                capture_this = True
+            self._set_flow_capture_flag(flow, bool(capture_this))
+
+        if not capture_this:
+            if log_capture_skip:
+                logger.warning(
+                    "跳过捕获(未命中 capture.include 或命中 exclude): %s %s",
+                    getattr(flow.request, 'method', '?'),
+                    getattr(flow.request, 'pretty_url', '?'),
+                )
+            return None
+
+        flow_id_str = self._flow_id_str(flow)
+        try:
+            req_id = flow.metadata.get("uproxier_request_id")
+        except Exception:
+            req_id = None
+
+        with self._traffic_state_lock:
+            existing = self._find_tracked_row_locked(flow_id_str, req_id)
+            if existing is not None:
+                try:
+                    flow.metadata["uproxier_request_id"] = existing.get("id")
+                    flow.metadata["uproxier_flow_id"] = existing.get("flow_id") or flow_id_str
+                except Exception:
+                    pass
+                return existing
+
+            self.request_count += 1
+            req_id_assigned = self.request_count
+            try:
+                flow.metadata["uproxier_request_id"] = req_id_assigned
+                flow.metadata["uproxier_flow_id"] = flow_id_str
+            except Exception:
+                pass
+
+            start_time = getattr(flow.request, "timestamp_start", None) or time.time()
+            try:
+                flow.request.timestamp_start = start_time
+            except Exception:
+                pass
+
+            request_info: Dict[str, Any] = {
+                'id': req_id_assigned,
+                'flow_id': flow_id_str,
+                'method': flow.request.method,
+                'url': flow.request.pretty_url,
+                'host': flow.request.pretty_host,
+                'port': flow.request.port,
+                'path': flow.request.path,
+                'scheme': flow.request.scheme,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'status': 'pending',
+                'request_headers_received': True,
+                'request_fully_received': False,
+            }
+            self.traffic_data.append(request_info)
+            return request_info
+
     def tls_clienthello(self, data: mitm_tls.ClientHelloData) -> None:
         """TLS ClientHello：若 SNI 命中 exclude.hosts 则不解密，直接透传（解决 ignore_hosts 不可靠的问题）"""
         try:
@@ -452,115 +595,89 @@ class ProxyAddon:
         except Exception:
             pass
 
+    def requestheaders(self, flow: http.HTTPFlow) -> None:
+        """
+        在仅收到请求头时就创建最小记录。
+
+        mitmproxy 的 request() 要等到整个请求体读完才会触发；
+        对带 body 的普通 POST，如果中途被客户端取消/断开，request() 可能根本不会触发。
+        """
+        request_info = self._ensure_request_tracking_row(flow, log_capture_skip=True)
+        if not request_info:
+            return
+        try:
+            self._emit_pending_jsonl_once(request_info)
+            self.web_interface.update_traffic_data(self.traffic_data, changed=request_info)
+        except Exception:
+            logger.exception("UProxier requestheaders() 处理异常")
+
     def request(self, flow: http.HTTPFlow) -> None:
         """处理请求"""
-        # 跳过对内部 Web 端口的拦截（包括二维码链接）
-        try:
-            if flow.request.port in self.internal_web_ports:
-                try:
-                    flow.metadata["uproxier_capture"] = False
-                    flow.metadata["uproxier_skip"] = "internal_web_port"
-                except Exception:
-                    pass
-                return
-            if (flow.request.pretty_host, flow.request.port) in self.internal_targets:
-                try:
-                    flow.metadata["uproxier_capture"] = False
-                    flow.metadata["uproxier_skip"] = "internal_target"
-                except Exception:
-                    pass
-                return
-        except Exception:
-            pass
-        start_time = time.time()
-
-        # 先判定是否需要捕获；命中 exclude 则不捕获、不执行规则，对应域名也不做 TLS 解密，直接透传
-        try:
-            capture_this = self._should_capture(flow.request)
-            flow.metadata["uproxier_capture"] = bool(capture_this)
-        except Exception:
-            capture_this = True
-            flow.metadata["uproxier_capture"] = True
-        if not capture_this:
-            logger.warning(
-                "跳过捕获(未命中 capture.include 或命中 exclude): %s %s",
-                getattr(flow.request, 'method', '?'),
-                getattr(flow.request, 'pretty_url', '?'),
-            )
+        request_info = self._ensure_request_tracking_row(flow)
+        if request_info is None:
             return
 
-        flow_id_str = self._flow_id_str(flow)
-        with self._traffic_state_lock:
-            self.request_count += 1
-            req_id_assigned = self.request_count
-            try:
-                flow.metadata["uproxier_request_id"] = req_id_assigned
-                flow.metadata["uproxier_flow_id"] = flow_id_str
-            except Exception:
-                pass
-            request_info: Dict[str, Any] = {
-                'id': req_id_assigned,
-                'flow_id': flow_id_str,
-                'method': flow.request.method,
-                'url': flow.request.pretty_url,
-                'host': flow.request.pretty_host,
-                'port': flow.request.port,
-                'path': flow.request.path,
-                'scheme': flow.request.scheme,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'status': 'pending',
-            }
-            self.traffic_data.append(request_info)
-
-        # 记录请求信息（原始），写入与 traffic_data 中占位行同一 dict
-        content_type = (get_header_value(flow.request.headers, 'content-type') or '').lower()
-        transfer_encoding = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
-        content_length = get_header_value(flow.request.headers, 'content-length') or ''
-
-        # 根据配置判断是否启用流媒体抓包
-        enable_streaming = self.capture_config.get('enable_streaming', False)
-        enable_large_files = self.capture_config.get('enable_large_files', False)
-        large_file_threshold = self.capture_config.get('large_file_threshold', 1048576)
-
-        # 判断是否为流媒体或大文件
-        is_multipart = content_type.startswith('multipart/form-data')
-        is_binary = any(t in content_type for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
-        is_streaming = enable_streaming and ('chunked' in transfer_encoding or content_type.startswith('multipart/'))
-        # Content-Length 可能为非数字（如缺失或被代理端异常设置），需安全判断
-        is_large_file = enable_large_files and content_length and str(content_length).isdigit() and int(
-            content_length) > large_file_threshold
-
-        # 处理内容（根据配置决定是否处理流媒体和大文件）
-        if (is_multipart or is_binary or is_streaming or is_large_file) and flow.request.content:
-            if is_multipart:
-                content_info = f"[MULTIPART] Size: {len(flow.request.content)} bytes, Type: {content_type}"
-            elif is_streaming:
-                content_info = f"[STREAMING] Size: {len(flow.request.content)} bytes, Type: {content_type}, Transfer-Encoding: {transfer_encoding}"
-            elif is_binary:
-                content_info = f"[BINARY] Size: {len(flow.request.content)} bytes, Type: {content_type}"
-            else:
-                content_info = f"[LARGE_FILE] Size: {len(flow.request.content)} bytes, Type: {content_type}"
-        elif flow.request.content:
-            try:
-                content_info = flow.request.content.decode('utf-8', errors='ignore')
-            except UnicodeDecodeError:
-                content_info = f"[ENCODED] Size: {len(flow.request.content)} bytes"
-        else:
-            content_info = ''
-
-        request_info.update({
-            'headers': dict(flow.request.headers),
-            'content': content_info,
-            'content_size': len(flow.request.content) if flow.request.content else 0,
-            'is_multipart': is_multipart,
-            'is_binary': is_binary,
-            'is_streaming': is_streaming,
-            'is_large_file': is_large_file,
-            'transfer_encoding': transfer_encoding,
-            'content_length': content_length,
-        })
+        try:
+            capture_this = bool(flow.metadata.get("uproxier_capture"))
+        except Exception:
+            capture_this = True
+        start_time = getattr(flow.request, "timestamp_start", None) or time.time()
+        try:
+            flow.request.timestamp_start = start_time
+        except Exception:
+            pass
 
         try:
+            request_body = self._safe_message_content(flow.request)
+            content_type = (get_header_value(flow.request.headers, 'content-type') or '').lower()
+            transfer_encoding = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
+            content_length = get_header_value(flow.request.headers, 'content-length') or ''
+
+            # 根据配置判断是否启用流媒体抓包
+            enable_streaming = self.capture_config.get('enable_streaming', False)
+            enable_large_files = self.capture_config.get('enable_large_files', False)
+            large_file_threshold = self.capture_config.get('large_file_threshold', 1048576)
+
+            # 判断是否为流媒体或大文件
+            is_multipart = content_type.startswith('multipart/form-data')
+            is_binary = any(t in content_type for t in ['video/', 'audio/', 'image/', 'application/octet-stream'])
+            is_streaming = enable_streaming and ('chunked' in transfer_encoding or content_type.startswith('multipart/'))
+            # Content-Length 可能为非数字（如缺失或被代理端异常设置），需安全判断
+            is_large_file = enable_large_files and content_length and str(content_length).isdigit() and int(
+                content_length) > large_file_threshold
+
+            # 处理内容（根据配置决定是否处理流媒体和大文件）
+            if (is_multipart or is_binary or is_streaming or is_large_file) and request_body:
+                if is_multipart:
+                    content_info = f"[MULTIPART] Size: {len(request_body)} bytes, Type: {content_type}"
+                elif is_streaming:
+                    content_info = f"[STREAMING] Size: {len(request_body)} bytes, Type: {content_type}, Transfer-Encoding: {transfer_encoding}"
+                elif is_binary:
+                    content_info = f"[BINARY] Size: {len(request_body)} bytes, Type: {content_type}"
+                else:
+                    content_info = f"[LARGE_FILE] Size: {len(request_body)} bytes, Type: {content_type}"
+            elif request_body:
+                try:
+                    content_info = request_body.decode('utf-8', errors='ignore')
+                except UnicodeDecodeError:
+                    content_info = f"[ENCODED] Size: {len(request_body)} bytes"
+            else:
+                content_info = ''
+
+            request_info.update({
+                'headers': dict(flow.request.headers),
+                'content': content_info,
+                'content_size': len(request_body) if request_body else 0,
+                'is_multipart': is_multipart,
+                'is_binary': is_binary,
+                'is_streaming': is_streaming,
+                'is_large_file': is_large_file,
+                'transfer_encoding': transfer_encoding,
+                'content_length': content_length,
+                'request_headers_received': True,
+                'request_fully_received': True,
+            })
+
             modified_request, applied_rule_names = self.rules_engine.apply_request_rules(flow.request)
             if modified_request:
                 flow.request = modified_request
@@ -599,6 +716,7 @@ class ProxyAddon:
                         self._emit_handler_failure_record(request_info, e, status='short_circuit_handler_error')
                     return
                 # 计算修改后的预览
+                modified_request_body = self._safe_message_content(flow.request)
                 mod_ct = (get_header_value(flow.request.headers, 'content-type') or '').lower()
                 mod_te = (get_header_value(flow.request.headers, 'transfer-encoding') or '').lower()
                 mod_cl = get_header_value(flow.request.headers, 'content-length') or ''
@@ -612,25 +730,25 @@ class ProxyAddon:
                     and mod_cl_val is not None
                     and mod_cl_val > self.capture_config.get('large_file_threshold', 1048576)
                 )
-                if (mod_is_multipart or mod_is_binary or mod_is_streaming or mod_is_large_file) and flow.request.content:
+                if (mod_is_multipart or mod_is_binary or mod_is_streaming or mod_is_large_file) and modified_request_body:
                     if mod_is_multipart:
-                        mod_content_info = f"[MULTIPART] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
+                        mod_content_info = f"[MULTIPART] Size: {len(modified_request_body)} bytes, Type: {mod_ct}"
                     elif mod_is_streaming:
-                        mod_content_info = f"[STREAMING] Size: {len(flow.request.content)} bytes, Type: {mod_ct}, Transfer-Encoding: {mod_te}"
+                        mod_content_info = f"[STREAMING] Size: {len(modified_request_body)} bytes, Type: {mod_ct}, Transfer-Encoding: {mod_te}"
                     elif mod_is_binary:
-                        mod_content_info = f"[BINARY] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
+                        mod_content_info = f"[BINARY] Size: {len(modified_request_body)} bytes, Type: {mod_ct}"
                     else:
-                        mod_content_info = f"[LARGE_FILE] Size: {len(flow.request.content)} bytes, Type: {mod_ct}"
-                elif flow.request.content:
+                        mod_content_info = f"[LARGE_FILE] Size: {len(modified_request_body)} bytes, Type: {mod_ct}"
+                elif modified_request_body:
                     try:
-                        mod_content_info = flow.request.content.decode('utf-8', errors='ignore')
+                        mod_content_info = modified_request_body.decode('utf-8', errors='ignore')
                     except UnicodeDecodeError:
-                        mod_content_info = f"[ENCODED] Size: {len(flow.request.content)} bytes"
+                        mod_content_info = f"[ENCODED] Size: {len(modified_request_body)} bytes"
                 else:
                     mod_content_info = ''
                 request_info['modified_headers'] = dict(flow.request.headers)
                 request_info['modified_content'] = mod_content_info
-                request_info['modified_content_size'] = len(flow.request.content) if flow.request.content else 0
+                request_info['modified_content_size'] = len(modified_request_body) if modified_request_body else 0
                 request_info['modified_is_multipart'] = mod_is_multipart
 
             if capture_this:
@@ -884,16 +1002,20 @@ class ProxyAddon:
 
         target = self._find_traffic_row_for_flow(flow)
         if target is not None:
+            request_incomplete = not bool(target.get('request_fully_received'))
             target.update({
                 'status': 'error',
                 'error': str(flow.error),
-                'error_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                'error_timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'request_incomplete': request_incomplete,
             })
+            if request_incomplete:
+                target['error_phase'] = 'request_body'
             try:
                 self.web_interface.update_traffic_data(self.traffic_data, changed=target)
             except Exception as e2:
                 logger.warning("error() 更新 Web 展示失败（仍尝试落盘）: %s", e2)
-            self._maybe_persist(target, jsonl_phase='error')
+            self._maybe_persist(target, jsonl_phase='request_incomplete_error' if request_incomplete else 'error')
 
     def _minimal_persist_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         """主记录无法 JSON 序列化时，仅抽取关键字段兜底落盘。"""
@@ -905,6 +1027,8 @@ class ProxyAddon:
         keys = (
             'id', 'method', 'url', 'host', 'port', 'path', 'scheme', 'timestamp',
             'status', 'error', 'error_timestamp',
+            'request_headers_received', 'request_fully_received',
+            'request_incomplete', 'error_phase',
             'handler_error', 'handler_error_timestamp',
             'response_status', 'response_timestamp',
             'terminated_before_response', 'persist_timestamp', 'jsonl_phase',
