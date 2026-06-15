@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 ### Requirements
 
-- Python 3.8+
+- Python 3.12+
 - OpenSSL (for certificate generation)
 
 ## Quick Start

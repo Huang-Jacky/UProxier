@@ -1,4 +1,4 @@
-mitmproxy==10.2.4
+mitmproxy==12.2.3
 flask==3.0.0
 flask-cors==4.0.0
 python-dotenv==1.0.0

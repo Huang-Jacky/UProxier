@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uproxier"
-version = "0.2.0"
+version = "0.2.1"
 description = "HTTP/HTTPS proxy with rules engine and web UI"
 readme = "README_PYPI.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "huangjincheng", email = "hjc853@gmail.com" }]
 keywords = ["proxy", "mitmproxy", "sse", "rules", "mock", "http", "https"]
@@ -16,17 +16,15 @@ classifiers = [
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
   "Topic :: Software Development :: Testing",
   "Topic :: System :: Networking",
 ]
 dependencies = [
-  "mitmproxy==10.2.4",
+  "mitmproxy==12.2.3",
   "flask==3.0.0",
   "flask-cors==4.0.0",
   "python-dotenv==1.0.0",

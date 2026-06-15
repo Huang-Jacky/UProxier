@@ -38,7 +38,7 @@ pip install -r requirements.txt
 
 ### 依赖要求
 
-- Python 3.8+
+- Python 3.12+
 - OpenSSL (用于证书生成)
 
 ## 快速开始

@@ -280,7 +280,7 @@ class RulesEngine:
         default_config = {
             'capture': {
                 'include': {
-                    'hosts': ['.*']  # 默认捕获所有请求
+                    'hosts': ['^.*$']  # 默认捕获所有请求
                 },
                 'enable_streaming': False,
                 'enable_large_files': False,
